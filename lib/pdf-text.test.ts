@@ -20,3 +20,26 @@ trailer<</Root 1 0 R>>
   const text = await extractPdfTextFromBytes(new Uint8Array(pdf));
   assert.match(text, /Hello DeepRomeo/);
 });
+
+test("a long document is not silently cut off part-way", async () => {
+  const { deflateSync } = await import("node:zlib");
+  const pages = 120;
+  const parts: Buffer[] = [Buffer.from("%PDF-1.4\n", "latin1")];
+  for (let i = 1; i <= pages; i++) {
+    const body = `BT /F1 10 Tf 20 700 Td (Halaman ${i} penanda unik) Tj ET\n`;
+    const deflated = deflateSync(Buffer.from(body, "latin1"));
+    parts.push(
+      Buffer.from(`${i} 0 obj<</Length ${deflated.length}/Filter/FlateDecode>>stream\n`, "latin1"),
+      deflated,
+      Buffer.from("\nendstream\nendobj\n", "latin1"),
+    );
+  }
+  parts.push(Buffer.from("trailer<</Root 1 0 R>>\n%%EOF\n", "latin1"));
+
+  const text = await extractPdfTextFromBytes(new Uint8Array(Buffer.concat(parts)));
+
+  // The old 40-stream ceiling dropped everything past page 40 with no warning.
+  assert.match(text, /Halaman 1 /, "first page missing");
+  assert.match(text, /Halaman 41 /, "stopped at the old 40-stream ceiling");
+  assert.match(text, new RegExp(`Halaman ${pages} `), "last page missing");
+});

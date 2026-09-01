@@ -61,9 +61,23 @@ async function inflateBytes(payload: Uint8Array): Promise<Uint8Array | null> {
   return null;
 }
 
+/**
+ * Bounds on how much of a PDF gets inflated. The previous limit of 40 streams
+ * was reached by any long document, which then lost every later page without
+ * a word of warning. Scans were worse: their leading image streams inflate
+ * fine while carrying no text, so the cap could be spent before reaching the
+ * OCR text layer at all. These bounds are wide enough for a whole document
+ * and still cap the work.
+ */
+const MAX_INFLATED_STREAMS = 600;
+const MAX_INFLATED_BYTES = 4 * 1024 * 1024;
+const MAX_INFLATE_MS = 4_000;
+
 async function inflatePdfStreams(data: Uint8Array): Promise<Uint8Array> {
   const raw = latin1(data);
   const parts: Uint8Array[] = [];
+  const started = Date.now();
+  let inflatedBytes = 0;
   const marker = /stream\r?\n/g;
   let match: RegExpExecArray | null;
   while ((match = marker.exec(raw))) {
@@ -72,8 +86,13 @@ async function inflatePdfStreams(data: Uint8Array): Promise<Uint8Array> {
     if (end < 0) break;
     const payload = data.subarray(start, end);
     const inflated = await inflateBytes(payload.byteLength > 12 ? payload.subarray(0, payload.byteLength - (raw[end - 1] === "\n" ? 1 : 0)) : payload);
-    if (inflated && inflated.byteLength > 16) parts.push(inflated);
-    if (parts.length >= 40) break;
+    if (inflated && inflated.byteLength > 16) {
+      parts.push(inflated);
+      inflatedBytes += inflated.byteLength;
+    }
+    if (parts.length >= MAX_INFLATED_STREAMS) break;
+    if (inflatedBytes >= MAX_INFLATED_BYTES) break;
+    if (Date.now() - started >= MAX_INFLATE_MS) break;
   }
   if (!parts.length) return data;
   const total = parts.reduce((n, p) => n + p.byteLength, 0);

@@ -34,6 +34,7 @@
     "node_modules",
     "lib/attachments.test.ts",
     "lib/canvas-data.test.ts",
+    "lib/llm-request.test.ts",
     "lib/mask-stream.test.ts",
     "lib/pdf-text.test.ts",
     "scripts"

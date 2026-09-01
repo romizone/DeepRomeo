@@ -19,6 +19,7 @@ import { listMcpTools } from "@/lib/tools/mcp";
 import { pluginTools } from "@/lib/tools/plugins";
 import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { buildCompletionBody, providerErrorMessage, type ToolChoice } from "@/lib/llm-request";
 import type { ProviderMessage } from "@/lib/llm-types";
 import type { Attachment, CanvasState, ComposerTool, Message, ModelId, Mode } from "@/lib/types";
 
@@ -455,7 +456,7 @@ async function streamCompletion(opts: {
   model: string;
   messages: ProviderMessage[];
   tools: unknown[];
-  toolChoice?: "auto" | "required" | { type: "function"; function: { name: string } };
+  toolChoice?: ToolChoice;
   onThinking: (d: string) => void;
   onContent: (d: string) => void;
 }): Promise<{
@@ -473,15 +474,14 @@ async function streamCompletion(opts: {
         "Content-Type": "application/json",
       },
       signal: AbortSignal.timeout(PROVIDER_FETCH_TIMEOUT_MS),
-      body: JSON.stringify({
-        model: opts.model,
-        messages: opts.messages,
-        stream: true,
-        thinking: { type: "enabled" },
-        reasoning_effort: "high",
-        tools: opts.tools.length ? opts.tools : undefined,
-        tool_choice: opts.tools.length ? opts.toolChoice || "auto" : undefined,
-      }),
+      body: JSON.stringify(
+        buildCompletionBody({
+          model: opts.model,
+          messages: opts.messages,
+          tools: opts.tools,
+          toolChoice: opts.toolChoice,
+        }),
+      ),
     });
   } catch (error) {
     const name = error instanceof Error ? error.name : "";
@@ -492,8 +492,7 @@ async function streamCompletion(opts: {
   }
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text.slice(0, 500) || `Request failed (${res.status})`);
+    throw new Error(providerErrorMessage(await res.text(), res.status));
   }
 
   const reader = res.body?.getReader();
