@@ -14,7 +14,7 @@ export function getProviderConfig() {
     "",
   );
   if (!apiKey) {
-    throw new Error("DeepRomeo is not configured. Add an API key in Settings.");
+    throw new Error("DeepRomeo is not configured. Set DEEPROMEO_API_KEY in the server environment.");
   }
   return { apiKey, baseURL };
 }

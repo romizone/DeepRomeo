@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Play, Plus, Trash2, X } from "lucide-react";
 import { hydrateCanvas, slidesToHtml } from "@/lib/canvas-data";
 import type { CanvasState, Slide, SpreadsheetData } from "@/lib/types";
@@ -21,11 +21,6 @@ export function CanvasPanel({
   const [docMode, setDocMode] = useState<"edit" | "preview">("preview");
 
   const isPy = (canvas.language || "").toLowerCase().includes("py");
-
-  useEffect(() => {
-    setOutput("");
-    if (canvas.kind === "document") setDocMode("preview");
-  }, [canvas.id, canvas.kind]);
 
   const run = async () => {
     if (!isPy) return;
@@ -168,10 +163,6 @@ function PresentationView({
     }),
   );
   const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    setIndex(0);
-  }, [canvas.id]);
   const safeIndex = Math.max(0, Math.min(index, Math.max(0, slides.length - 1)));
   const slide = slides[safeIndex] || slides[0] || { id: "s1", title: "Slide", bullets: [] as string[] };
 

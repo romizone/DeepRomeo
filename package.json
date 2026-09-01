@@ -12,7 +12,8 @@
     "lint": "eslint",
     "test:attachments": "node --experimental-strip-types --test lib/attachments.test.ts lib/pdf-text.test.ts",
     "test:plugins": "node --experimental-strip-types --test lib/canvas-data.test.ts",
-    "test": "node --experimental-strip-types --test lib/attachments.test.ts lib/canvas-data.test.ts lib/pdf-text.test.ts"
+    "test": "node --experimental-strip-types --test lib/attachments.test.ts lib/canvas-data.test.ts lib/mask-stream.test.ts lib/pdf-text.test.ts",
+    "test:mask": "node --experimental-strip-types --test lib/mask-stream.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

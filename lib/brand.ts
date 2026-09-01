@@ -1,24 +1,7 @@
 import "server-only";
 
-const REPLACEMENTS: [RegExp, string][] = [
-  [/deepseek-v4-flash-vision-exp/gi, "DeepRomeo Vision Flash"],
-  [/deepseek-v4-flash/gi, "DeepRomeo Flash"],
-  [/deepseek-v4-pro/gi, "DeepRomeo Pro"],
-  [/deepseek[\w.-]*/gi, "DeepRomeo"],
-  [/DeepSeek/g, "DeepRomeo"],
-  [/openrouter\.ai/gi, ""],
-  [/OpenRouter/gi, ""],
-  [/google\/gemini-[\w.-]+/gi, "DeepRomeo Image"],
-  [/api\.deepseek\.com/gi, ""],
-];
-
-export function maskProviderText(input: string): string {
-  let out = input;
-  for (const [pattern, replacement] of REPLACEMENTS) {
-    out = out.replace(pattern, replacement);
-  }
-  return out;
-}
+export { createStreamMasker, maskProviderText } from "./mask-stream";
+import { maskProviderText } from "./mask-stream";
 
 export function maskError(err: unknown): string {
   const raw =
@@ -29,7 +12,7 @@ export function maskError(err: unknown): string {
         : "Something went wrong.";
   const masked = maskProviderText(raw);
   if (/api key|unauthorized|401/i.test(masked)) {
-    return "DeepRomeo could not authenticate. Check your API key in Settings.";
+    return "DeepRomeo could not authenticate. Check DEEPROMEO_API_KEY in the server environment.";
   }
   if (/429|rate limit/i.test(masked)) {
     return "DeepRomeo is busy right now. Try again in a moment.";

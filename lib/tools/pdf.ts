@@ -158,7 +158,9 @@ export function verifyPdfText(text: string, opts?: { filename?: string; pages?: 
     if (cleaned.length < 40) {
       issues.push({ severity: "warning", message: "Very little text was extracted." });
     }
-    const replacement = (cleaned.match(/\uFFFD|\?/g) || []).length;
+    // Only U+FFFD and stray control bytes indicate a broken decode. Counting
+    // "?" flagged any text that merely asked a lot of questions.
+    const replacement = (cleaned.match(/[\uFFFD\u0001-\u0008\u000e-\u001f]/g) || []).length;
     if (replacement > cleaned.length * 0.12 && cleaned.length > 80) {
       issues.push({ severity: "warning", message: "Many unreadable characters. Encoding may be damaged." });
     }

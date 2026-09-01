@@ -1,5 +1,5 @@
-export const PRIMARY_HOST = "deepromeo.rominur.com";
-export const ALIAS_HOST = "openromeo.rominur.com";
+export const PRIMARY_HOST = "openromeo.rominur.com";
+export const ALIAS_HOST = "deepromeo.rominur.com";
 export const APP_HOSTS = [PRIMARY_HOST, ALIAS_HOST];
 
 export function appUrl() {

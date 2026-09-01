@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   BookOpen,
@@ -62,9 +62,7 @@ export function Composer({
   const menuRef = useRef<HTMLDivElement>(null);
   const plusRef = useRef<HTMLButtonElement>(null);
   const recRef = useRef<SpeechRecognition | null>(null);
-  const [menuBox, setMenuBox] = useState<{ left: number; bottom: number; maxHeight: number; width: number } | null>(
-    null,
-  );
+  const menuPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const el = ta.current;
@@ -81,33 +79,29 @@ export function Composer({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
+  const placeMenu = useCallback(() => {
+    const panel = menuPanelRef.current;
+    const rect = plusRef.current?.getBoundingClientRect();
+    if (!panel || !rect) return;
+    const gap = 8;
+    const width = Math.min(392, Math.max(280, window.innerWidth - 24));
+    const maxHeight = Math.max(240, Math.min(460, rect.top - gap - 8));
+    const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
+    panel.style.left = `${left}px`;
+    panel.style.bottom = `${window.innerHeight - rect.top + gap}px`;
+    panel.style.maxHeight = `${maxHeight}px`;
+    panel.style.width = `${width}px`;
+  }, []);
+
   useEffect(() => {
-    if (!menu) {
-      setMenuBox(null);
-      return;
-    }
-    const place = () => {
-      const rect = plusRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const gap = 8;
-      const width = Math.min(392, Math.max(280, window.innerWidth - 24));
-      const maxHeight = Math.max(240, Math.min(460, rect.top - gap - 8));
-      const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
-      setMenuBox({
-        left,
-        bottom: window.innerHeight - rect.top + gap,
-        maxHeight,
-        width,
-      });
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
+    if (!menu) return;
+    window.addEventListener("resize", placeMenu);
+    window.addEventListener("scroll", placeMenu, true);
     return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", placeMenu);
+      window.removeEventListener("scroll", placeMenu, true);
     };
-  }, [menu]);
+  }, [menu, placeMenu]);
 
   const canSend = !uploading && (text.trim().length > 0 || attachments.length > 0);
 
@@ -322,15 +316,15 @@ export function Composer({
             >
               <Plus size={18} />
             </button>
-            {menu && menuBox && (
+            {menu && (
               <div
-                className="fixed z-[80] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg)] py-1.5 shadow-[0_12px_40px_rgba(0,0,0,.28)] dr-scroll"
-                style={{
-                  left: menuBox.left,
-                  bottom: menuBox.bottom,
-                  maxHeight: menuBox.maxHeight,
-                  width: menuBox.width,
+                ref={(node) => {
+                  menuPanelRef.current = node;
+                  // Ref callbacks run before paint, so the panel is positioned
+                  // on its very first frame.
+                  if (node) placeMenu();
                 }}
+                className="fixed z-[80] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg)] py-1.5 shadow-[0_12px_40px_rgba(0,0,0,.28)] dr-scroll"
               >
                 <button
                   type="button"

@@ -1,4 +1,4 @@
-import { deleteConversation, getConversation, listConversations, upsertConversation } from "@/lib/store";
+import { listConversations, upsertConversation } from "@/lib/store";
 import type { Conversation } from "@/lib/types";
 
 export async function GET() {

@@ -231,7 +231,10 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
     text: string,
     extra?: { permissionId?: string; permissionApproved?: boolean; extraTools?: ComposerTool[] },
   ) => {
-    const content = text || extra?.permissionId ? text : "";
+    // A permission reply carries no text of its own, which the guard below
+    // already allows for. The old expression parsed as `(text || id) ? text : ""`
+    // and so always evaluated to `text` anyway.
+    const content = text;
     if (!content && !attachments.length && !extra?.permissionId) return;
 
     const activeTools = extra?.extraTools ? [...new Set([...tools, ...extra.extraTools])] : tools;
@@ -709,6 +712,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
 
         {canvasOpen && conv.canvas && (
           <CanvasPanel
+            key={conv.canvas.id}
             canvas={conv.canvas}
             onClose={() => setCanvasOpen(false)}
             onChange={(c) => {

@@ -1,4 +1,4 @@
-import { maskError, maskProviderText } from "@/lib/brand";
+import { createStreamMasker, maskError, maskProviderText } from "@/lib/brand";
 import {
   attachmentsForChatRequest,
   buildProviderUserText,
@@ -20,10 +20,13 @@ import { pluginTools } from "@/lib/tools/plugins";
 import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import type { ProviderMessage } from "@/lib/llm-types";
-import type { Attachment, CanvasState, ComposerTool, Conversation, Message, ModelId, Mode } from "@/lib/types";
+import type { Attachment, CanvasState, ComposerTool, Message, ModelId, Mode } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+/** Replaying an unbounded history eventually overflows the context window. */
+const HISTORY_CHAR_BUDGET = 120_000;
 
 type Incoming = {
   conversationId?: string;
@@ -50,7 +53,7 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as Incoming;
   } catch {
-    return Response.json({ error: "Permintaan terlalu besar atau tidak valid." }, { status: 413 });
+    return Response.json({ error: "Permintaan tidak valid atau rusak di tengah jalan." }, { status: 400 });
   }
   body.attachments = attachmentsForChatRequest(body.attachments);
 
@@ -223,13 +226,12 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
         messages.push({ role: "user", content: text });
       }
     } else if (m.role === "assistant") {
-      messages.push({
-        role: "assistant",
-        content: m.content || "",
-        reasoning_content: m.thinking || null,
-      });
+      // reasoning_content must not be sent back as input; the provider rejects it.
+      messages.push({ role: "assistant", content: m.content || "" });
     }
   }
+
+  capHistory(messages, HISTORY_CHAR_BUDGET);
 
   const ctx: ToolContext = {
     canvas: conv.canvas ? hydrateCanvas(conv.canvas) : null,
@@ -251,6 +253,9 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   const thinkStart = Date.now();
 
   const initialToolChoice = toolChoiceFor(body.tools, ctx.canvas, { hasUploads });
+  const contentMasker = createStreamMasker((chunk) => send({ type: "content", delta: chunk }));
+  const thinkingMasker = createStreamMasker((chunk) => send({ type: "thinking", delta: chunk }));
+  let awaitingPermission = false;
 
   for (let turn = 0; turn < 12; turn++) {
     const result = await streamCompletion({
@@ -260,26 +265,28 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       toolChoice: turn === 0 ? initialToolChoice : "auto",
       onThinking: (d) => {
         finalThinking += d;
-        send({ type: "thinking", delta: d });
+        thinkingMasker.push(d);
       },
       onContent: (d) => {
         finalContent += d;
-        send({ type: "content", delta: maskProviderText(d) });
+        contentMasker.push(d);
       },
     });
 
     thinkingMs = Date.now() - thinkStart;
+    // A pattern cannot span two separate completions, so it is safe to release
+    // whatever the maskers are still holding once a turn ends.
+    contentMasker.flush();
+    thinkingMasker.flush();
 
-    if (!result.toolCalls.length) {
-      finalContent = result.content || finalContent;
-      finalThinking = result.thinking || finalThinking;
-      break;
-    }
+    // finalContent/finalThinking already carry every delta from every turn.
+    // Replacing them with only the last turn's text used to discard any prose
+    // the model wrote before it reached for a tool.
+    if (!result.toolCalls.length) break;
 
     messages.push({
       role: "assistant",
       content: result.content || null,
-      reasoning_content: result.thinking || null,
       tool_calls: result.toolCalls.map((t) => ({
         id: t.id,
         type: "function" as const,
@@ -333,14 +340,20 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       });
       if (ctx.permission) {
         send({ type: "permission", permission: ctx.permission });
-        finalContent =
-          result.content ||
-          `I need your approval to continue: **${ctx.permission.action}**\n\n${ctx.permission.detail}`;
-        turn = 99;
+        if (!finalContent.trim()) {
+          const notice = `I need your approval to continue: **${ctx.permission.action}**\n\n${ctx.permission.detail}`;
+          finalContent = notice;
+          send({ type: "content", delta: notice });
+        }
+        awaitingPermission = true;
         break;
       }
     }
+    if (awaitingPermission) break;
   }
+
+  contentMasker.flush();
+  thinkingMasker.flush();
 
   if (!finalContent && !ctx.permission && !toolUIs.length) {
     finalContent = EMPTY_ANALYSIS_MESSAGE;
@@ -378,6 +391,28 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     });
   }
   send({ type: "saved", conversation: { id: conv.id, title: conv.title } });
+}
+
+/** Drops the oldest turns, never the system prompt or the newest user turn. */
+function capHistory(messages: ProviderMessage[], budget: number) {
+  const measure = (m: ProviderMessage) => {
+    if (typeof m.content === "string") return m.content.length;
+    if (Array.isArray(m.content)) {
+      return m.content.reduce(
+        (n, part) => n + (part.type === "text" ? part.text.length : part.image_url.url.length),
+        0,
+      );
+    }
+    return 0;
+  };
+
+  let total = messages.reduce((n, m) => n + measure(m), 0);
+  let drop = 1;
+  while (total > budget && drop < messages.length - 1) {
+    total -= measure(messages[drop]);
+    drop++;
+  }
+  if (drop > 1) messages.splice(1, drop - 1);
 }
 
 function displayToolName(name: string) {

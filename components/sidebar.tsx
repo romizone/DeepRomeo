@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import {
-  Archive,
   MoreHorizontal,
   PanelLeft,
   Pencil,
@@ -20,11 +19,13 @@ function groupLabel(ts: number) {
   const d = new Date(ts);
   const now = new Date();
   const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const diff = start(now) - start(d);
-  if (diff === 0) return "Today";
-  if (diff === 86400000) return "Yesterday";
-  if (diff < 7 * 86400000) return "Previous 7 days";
-  if (diff < 30 * 86400000) return "Previous 30 days";
+  // Rounding to whole days keeps this correct across DST, where the gap
+  // between two midnights is 23 or 25 hours rather than exactly 86400000ms.
+  const days = Math.round((start(now) - start(d)) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return "Previous 7 days";
+  if (days < 30) return "Previous 30 days";
   return d.toLocaleString("en", { month: "long" });
 }
 
@@ -320,7 +321,7 @@ function ChatRow({
             }}
           />
           <MenuItem
-            icon={Archive}
+            icon={Trash2}
             label="Delete"
             danger
             onClick={() => {

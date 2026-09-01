@@ -34,13 +34,17 @@ export function SettingsModal({
       fetch("/api/mcp").then((r) => r.json()),
       fetch("/api/plugins").then((r) => r.json()),
       fetch("/api/skills").then((r) => r.json()),
-    ]).then(([s, m, c, p, sk]) => {
-      setSettings(s.settings);
-      setMemory(m.memory || []);
-      setMcp(c.servers || []);
-      setPlugins(p.plugins || []);
-      setSkills(sk.skills || []);
-    });
+    ])
+      .then(([s, m, c, p, sk]) => {
+        setSettings(s.settings);
+        setMemory(m.memory || []);
+        setMcp(c.servers || []);
+        setPlugins(p.plugins || []);
+        setSkills(sk.skills || []);
+      })
+      .catch(() => {
+        /* leave whatever loaded last in place rather than an empty panel */
+      });
   }, [open]);
 
   if (!open) return null;
@@ -92,7 +96,7 @@ export function SettingsModal({
                   </select>
                 </Field>
                 <p className="text-[13px] text-[var(--text-3)]">
-                  DeepRomeo on deepromeo.rominur.com and openromeo.rominur.com.
+                  DeepRomeo on openromeo.rominur.com and deepromeo.rominur.com.
                 </p>
               </div>
             )}

@@ -7,7 +7,7 @@ export async function generateImage(prompt: string, aspectRatio = "1:1") {
   const model = process.env.OPENROUTER_IMAGE_MODEL || "google/gemini-3.1-flash-image";
   if (!key) {
     return {
-      error: "Image generation is not configured. Add an image API key in Settings.",
+      error: "Image generation is not configured. Add an image API key to the server environment.",
     };
   }
 
