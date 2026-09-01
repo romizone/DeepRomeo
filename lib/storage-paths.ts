@@ -33,3 +33,8 @@ export function uploadCandidates(fileName: string): string[] {
 export function storageIsEphemeral(): boolean {
   return Boolean(process.env.VERCEL) && !process.env.DEEPROMEO_DATA_DIR;
 }
+
+/** True when a written upload will not outlive the request that created it. */
+export function uploadsAreEphemeral(): boolean {
+  return Boolean(process.env.VERCEL) && !process.env.DEEPROMEO_UPLOADS_DIR;
+}

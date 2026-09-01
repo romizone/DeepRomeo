@@ -18,6 +18,7 @@ import {
   slidesToMarkdown,
 } from "./artifacts";
 import { createPdfBuffer, verifyPdfText } from "./pdf";
+import { uploadsAreEphemeral } from "../storage-paths";
 import type { CanvasState, GeneratedFile, PlanState, SearchSource, Slide } from "../types";
 
 export interface ToolContext {
@@ -50,6 +51,11 @@ const DATA_URL_EXT: Record<string, string> = {
 function persistDataUrl(dataUrl: string, baseName: string): string {
   const match = DATA_URL_RE.exec(dataUrl);
   if (!match) return dataUrl;
+  // Where uploads do not survive the request, a short /api/files URL would 404
+  // as soon as the instance recycles — and being short, it survives
+  // persistableMessage, so the dead link is what gets stored. The inline form
+  // renders now and is stripped before it reaches the localStorage quota.
+  if (uploadsAreEphemeral()) return dataUrl;
   try {
     const mime = match[1];
     const buf = Buffer.from(match[2], "base64");
@@ -311,10 +317,12 @@ async function runTool(
     const dataUrl = bufferToDataUrl(buf, "application/pdf");
     const filename = `${title.replace(/[^a-zA-Z0-9._-]+/g, "-") || "document"}.pdf`;
     let file: GeneratedFile = { name: filename, url: dataUrl, mime: "application/pdf" };
-    try {
-      file = saveGeneratedFile(filename, buf, "application/pdf");
-    } catch {
-      /* no writable disk: fall back to the inline data URL */
+    if (!uploadsAreEphemeral()) {
+      try {
+        file = saveGeneratedFile(filename, buf, "application/pdf");
+      } catch {
+        /* no writable disk: keep the inline data URL */
+      }
     }
     ctx.files = [...ctx.files, file];
     ctx.canvas = newCanvas({
