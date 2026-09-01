@@ -58,7 +58,7 @@ export function buildSystemPrompt(opts: {
   }
   if (opts.forcedTools?.includes("presentations")) {
     lines.push(
-      "The user turned on the Presentations plugin. Immediately call create_presentation with a full slide deck.",
+      "The user turned on the Presentations plugin. Immediately call create_presentation with a full slide deck (title plus several slides, each with title and bullets). Do not only describe the slides.",
     );
   }
   if (opts.forcedTools?.includes("spreadsheets")) {

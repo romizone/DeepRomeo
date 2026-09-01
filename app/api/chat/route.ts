@@ -7,6 +7,8 @@ import {
   PROVIDER_FETCH_TIMEOUT_MS,
 } from "@/lib/attachments";
 import { getProviderConfig, resolveProviderModel } from "@/lib/provider";
+import { hydrateCanvas } from "@/lib/canvas-data";
+import { toolChoiceFor } from "@/lib/plugin-catalog";
 import { getConversation, upsertConversation } from "@/lib/store";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { builtinToolDefs } from "@/lib/tools/defs";
@@ -104,7 +106,9 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   conv.model = body.model;
   conv.skillId = body.skillId ?? conv.skillId;
   conv.projectId = body.projectId ?? conv.projectId;
-  if (body.canvas !== undefined) conv.canvas = body.canvas;
+  if (body.canvas !== undefined) {
+    conv.canvas = body.canvas ? hydrateCanvas(body.canvas) : null;
+  }
 
   if (body.permissionId && body.permissionApproved !== undefined) {
     const last = [...conv.messages].reverse().find((m) => m.permission?.id === body.permissionId);
@@ -223,7 +227,7 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   }
 
   const ctx: ToolContext = {
-    canvas: conv.canvas ?? null,
+    canvas: conv.canvas ? hydrateCanvas(conv.canvas) : null,
     plan: conv.plan ?? null,
     deliverable: conv.deliverable ?? null,
     permission: null,
@@ -241,11 +245,14 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   const toolUIs: Message["toolCalls"] = [];
   const thinkStart = Date.now();
 
+  const initialToolChoice = toolChoiceFor(body.tools, ctx.canvas, { hasUploads });
+
   for (let turn = 0; turn < 12; turn++) {
     const result = await streamCompletion({
       model,
       messages,
       tools,
+      toolChoice: turn === 0 ? initialToolChoice : "auto",
       onThinking: (d) => {
         finalThinking += d;
         send({ type: "thinking", delta: d });
@@ -278,8 +285,16 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     for (const call of result.toolCalls) {
       const args = capToolArguments(call.name, call.arguments);
       send({ type: "tool", id: call.id, name: displayToolName(call.name), status: "running" });
-      const executed = await executeTool(call.name, args, ctx);
-      ctx.canvas = executed.ctx.canvas;
+      let executed: { content: string; ctx: ToolContext };
+      try {
+        executed = await executeTool(call.name, args, ctx);
+      } catch (error) {
+        executed = {
+          content: JSON.stringify({ ok: false, error: maskError(error) }),
+          ctx,
+        };
+      }
+      ctx.canvas = executed.ctx.canvas ? hydrateCanvas(executed.ctx.canvas) : executed.ctx.canvas;
       ctx.plan = executed.ctx.plan;
       ctx.deliverable = executed.ctx.deliverable;
       ctx.permission = executed.ctx.permission;
@@ -393,6 +408,7 @@ async function streamCompletion(opts: {
   model: string;
   messages: ProviderMessage[];
   tools: unknown[];
+  toolChoice?: "auto" | "required" | { type: "function"; function: { name: string } };
   onThinking: (d: string) => void;
   onContent: (d: string) => void;
 }): Promise<{
@@ -417,7 +433,7 @@ async function streamCompletion(opts: {
         thinking: { type: "enabled" },
         reasoning_effort: "high",
         tools: opts.tools.length ? opts.tools : undefined,
-        tool_choice: opts.tools.length ? "auto" : undefined,
+        tool_choice: opts.tools.length ? opts.toolChoice || "auto" : undefined,
       }),
     });
   } catch (error) {

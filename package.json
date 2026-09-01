@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:attachments": "node --experimental-strip-types --test lib/attachments.test.ts"
+    "test:attachments": "node --experimental-strip-types --test lib/attachments.test.ts",
+    "test:plugins": "node --experimental-strip-types --test lib/canvas-data.test.ts",
+    "test": "node --experimental-strip-types --test lib/attachments.test.ts lib/canvas-data.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -8,6 +8,7 @@ import { runPlugin } from "./plugins";
 import {
   asRows,
   asStringList,
+  bufferToDataUrl,
   canvasKindFromLanguage,
   newCanvas,
   normalizeSheet,
@@ -30,6 +31,24 @@ export interface ToolContext {
 }
 
 export async function executeTool(
+  name: string,
+  rawArgs: string,
+  ctx: ToolContext,
+): Promise<{ content: string; ctx: ToolContext }> {
+  try {
+    return await runTool(name, rawArgs, ctx);
+  } catch (error) {
+    return {
+      content: JSON.stringify({
+        ok: false,
+        error: error instanceof Error ? error.message : "Tool failed",
+      }),
+      ctx,
+    };
+  }
+}
+
+async function runTool(
   name: string,
   rawArgs: string,
   ctx: ToolContext,
@@ -137,8 +156,28 @@ export async function executeTool(
     };
   }
   if (name === "update_slide") {
+    const nextTitle = args.title != null ? String(args.title) : undefined;
+    const nextBullets = args.bullets != null ? asStringList(args.bullets) : undefined;
+    const nextNotes = args.notes != null ? String(args.notes) : undefined;
     if (!ctx.canvas?.slides?.length) {
-      return { content: JSON.stringify({ ok: false, error: "No presentation is open." }), ctx };
+      const slides = normalizeSlides([
+        {
+          title: nextTitle || "Slide 1",
+          bullets: nextBullets || ["Add a talking point"],
+          notes: nextNotes,
+        },
+      ]);
+      const title = String(ctx.canvas?.title || args.title || "Presentation");
+      ctx.canvas = newCanvas({
+        ...(ctx.canvas || {}),
+        id: ctx.canvas?.id,
+        title,
+        content: slidesToMarkdown(title, slides),
+        kind: "presentation",
+        language: "slides",
+        slides,
+      });
+      return { content: JSON.stringify({ ok: true, created: true, index: 0, title: slides[0].title }), ctx };
     }
     const index = Number(args.index);
     if (!Number.isInteger(index) || index < 0 || index >= ctx.canvas.slides.length) {
@@ -148,9 +187,9 @@ export async function executeTool(
       i === index
         ? {
             ...slide,
-            title: args.title != null ? String(args.title) : slide.title,
-            bullets: args.bullets != null ? asStringList(args.bullets) : slide.bullets,
-            notes: args.notes != null ? String(args.notes) : slide.notes,
+            title: nextTitle != null ? nextTitle : slide.title,
+            bullets: nextBullets != null ? nextBullets : slide.bullets,
+            notes: nextNotes != null ? nextNotes : slide.notes,
           }
         : slide,
     );
@@ -238,14 +277,21 @@ export async function executeTool(
     const title = String(args.title || "Document");
     const content = String(args.content || "");
     const buf = createPdfBuffer(title, content);
-    const file = saveGeneratedFile(`${title.replace(/[^a-zA-Z0-9._-]+/g, "-") || "document"}.pdf`, buf, "application/pdf");
+    const dataUrl = bufferToDataUrl(buf, "application/pdf");
+    const filename = `${title.replace(/[^a-zA-Z0-9._-]+/g, "-") || "document"}.pdf`;
+    let file: GeneratedFile = { name: filename, url: dataUrl, mime: "application/pdf" };
+    try {
+      file = { ...saveGeneratedFile(filename, buf, "application/pdf"), url: dataUrl };
+    } catch {
+      /* data URL still previews on ephemeral serverless disks */
+    }
     ctx.files = [...ctx.files, file];
     ctx.canvas = newCanvas({
       title,
       content,
       kind: "pdf",
       language: "pdf",
-      fileUrl: file.url,
+      fileUrl: dataUrl,
       fileName: file.name,
     });
     const report = verifyPdfText(content, { filename: file.name });

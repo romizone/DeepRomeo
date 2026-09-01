@@ -20,6 +20,7 @@ import {
   tooLargeError,
   VERCEL_UPLOAD_MAX_BYTES,
 } from "@/lib/attachments";
+import { hydrateCanvas } from "@/lib/canvas-data";
 import { placeholderCanvasForTools } from "@/lib/plugin-catalog";
 import type {
   Attachment,
@@ -38,6 +39,7 @@ import type {
 
 const CHAT_CHIPS: { label: string; prompt: string; tool?: ComposerTool }[] = [
   { label: "Create image", prompt: "Create an image of a serene mountain lake at dawn", tool: "image" },
+  { label: "Create a deck", prompt: "Buat presentasi tentang strategi produk kuartalan.", tool: "presentations" },
   { label: "Write a document", prompt: "Write a one-page brief about remote work best practices.", tool: "documents" },
   { label: "Help me write", prompt: "Help me write " },
   { label: "Analyze data", prompt: "Analyze this data and show the key takeaways.", tool: "spreadsheets" },
@@ -188,11 +190,16 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
 
     const assistantId = crypto.randomUUID();
     const draftCanvas = placeholderCanvasForTools(activeTools);
+    const localCanvas = conv.canvas
+      ? hydrateCanvas(conv.canvas)
+      : draftCanvas
+        ? hydrateCanvas({ ...draftCanvas, id: crypto.randomUUID() })
+        : null;
     setConv((prev) => ({
       ...prev,
       mode,
       model,
-      canvas: prev.canvas ?? (draftCanvas ? { ...draftCanvas, id: crypto.randomUUID() } : prev.canvas),
+      canvas: prev.canvas ? hydrateCanvas(prev.canvas) : localCanvas,
       messages: [
         ...prev.messages,
         ...(userMsg ? [userMsg] : []),
@@ -208,7 +215,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
     setStreaming(true);
     setStreamingId(assistantId);
     if (mode === "work") setWorkOpen(true);
-    if (draftCanvas) setCanvasOpen(true);
+    if (localCanvas) setCanvasOpen(true);
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -242,7 +249,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           model,
           tools: activeTools,
           attachments: safeAttachments,
-          canvas: conv.canvas ?? null,
+          canvas: localCanvas,
           skillId: conv.skillId,
           projectId: conv.projectId,
           temporary: conv.temporary,
@@ -332,7 +339,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           }
           if (type === "canvas") {
             setCanvasOpen(true);
-            setConv((p) => ({ ...p, canvas: ev.canvas as CanvasState }));
+            setConv((p) => ({ ...p, canvas: hydrateCanvas(ev.canvas as CanvasState) }));
           }
           if (type === "plan") {
             setWorkOpen(true);

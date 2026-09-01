@@ -58,7 +58,11 @@ export function Composer({
   const ta = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const plusRef = useRef<HTMLButtonElement>(null);
   const recRef = useRef<SpeechRecognition | null>(null);
+  const [menuBox, setMenuBox] = useState<{ left: number; bottom: number; maxHeight: number; width: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     const el = ta.current;
@@ -74,6 +78,34 @@ export function Composer({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
+
+  useEffect(() => {
+    if (!menu) {
+      setMenuBox(null);
+      return;
+    }
+    const place = () => {
+      const rect = plusRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const gap = 8;
+      const width = Math.min(392, Math.max(280, window.innerWidth - 24));
+      const maxHeight = Math.max(240, Math.min(460, rect.top - gap - 8));
+      const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
+      setMenuBox({
+        left,
+        bottom: window.innerHeight - rect.top + gap,
+        maxHeight,
+        width,
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [menu]);
 
   const canSend = !uploading && (text.trim().length > 0 || attachments.length > 0);
 
@@ -252,18 +284,28 @@ export function Composer({
           <div className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-visible">
           <div ref={menuRef} className="relative shrink-0">
             <button
+              ref={plusRef}
               type="button"
               onClick={() => setMenu((v) => !v)}
               className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--plus-border)] text-[var(--text)] hover:bg-[var(--bg-hover)]"
               aria-label="Add"
+              aria-expanded={menu}
             >
               <Plus size={18} />
             </button>
-            {menu && (
-              <div className="absolute bottom-[44px] left-0 z-50 max-h-[min(460px,70vh)] w-[min(392px,calc(100vw-24px))] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg)] py-1.5 shadow-[0_12px_40px_rgba(0,0,0,.28)] dr-scroll">
+            {menu && menuBox && (
+              <div
+                className="fixed z-[80] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg)] py-1.5 shadow-[0_12px_40px_rgba(0,0,0,.28)] dr-scroll"
+                style={{
+                  left: menuBox.left,
+                  bottom: menuBox.bottom,
+                  maxHeight: menuBox.maxHeight,
+                  width: menuBox.width,
+                }}
+              >
                 <button
                   type="button"
-                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[14px] hover:bg-[var(--bg-hover)]"
+                  className="sticky top-0 z-10 flex w-full items-center gap-3 bg-[var(--bg)] px-3 py-2.5 text-left text-[14px] hover:bg-[var(--bg-hover)]"
                   onClick={() => {
                     openFilePicker();
                     setMenu(false);

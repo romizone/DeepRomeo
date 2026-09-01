@@ -12,15 +12,30 @@ export async function runPython(code: string): Promise<{ stdout: string; stderr:
   fs.writeFileSync(file, code, "utf8");
 
   return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (stdout: string, stderr: string) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+      resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+    };
+
+    let stdout = "";
+    let stderr = "";
     const child = spawn("python3", ["-I", "-B", file], {
       cwd: dir,
       env: { ...process.env, PATH: process.env.PATH || "/usr/bin:/bin", PYTHONIOENCODING: "utf-8" },
     });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       child.kill("SIGKILL");
       stderr += "\n[timed out after 20s]";
+      finish(stdout, stderr);
     }, TIMEOUT_MS);
     child.stdout.on("data", (d: Buffer) => {
       stdout += d.toString();
@@ -30,14 +45,11 @@ export async function runPython(code: string): Promise<{ stdout: string; stderr:
       stderr += d.toString();
       if (stderr.length > MAX_OUT) stderr = stderr.slice(0, MAX_OUT) + "\n…";
     });
+    child.on("error", (error) => {
+      finish("", error instanceof Error ? error.message : "Python is not available on this server.");
+    });
     child.on("close", () => {
-      clearTimeout(timer);
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
-      resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+      finish(stdout, stderr);
     });
   });
 }

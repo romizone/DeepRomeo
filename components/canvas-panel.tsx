@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Play, Plus, Trash2, X } from "lucide-react";
+import { hydrateCanvas, slidesToHtml } from "@/lib/canvas-data";
 import type { CanvasState, Slide, SpreadsheetData } from "@/lib/types";
 import { Markdown } from "./markdown";
 
 export function CanvasPanel({
-  canvas,
+  canvas: incoming,
   onClose,
   onChange,
 }: {
@@ -14,6 +15,7 @@ export function CanvasPanel({
   onClose: () => void;
   onChange: (c: CanvasState) => void;
 }) {
+  const canvas = hydrateCanvas(incoming);
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
   const [docMode, setDocMode] = useState<"edit" | "preview">("preview");
@@ -64,9 +66,9 @@ export function CanvasPanel({
     } else if (canvas.kind === "presentation") {
       filename = `${canvas.title}.html`;
       type = "text/html";
-      body = slidesHtml(canvas.title, canvas.slides || []);
+      body = slidesToHtml(canvas.title, canvas.slides || []);
     } else {
-      const ext = canvas.language.replace(/[^a-z0-9]/gi, "") || "txt";
+      const ext = (canvas.language || "txt").replace(/[^a-z0-9]/gi, "") || "txt";
       filename = `${canvas.title}.${ext}`;
     }
     const blob = new Blob([body], { type });
@@ -80,7 +82,7 @@ export function CanvasPanel({
     <section className="flex h-full min-w-[360px] max-w-[52%] flex-1 flex-col border-l border-[var(--border)] bg-[var(--bg)]">
       <header className="flex h-12 items-center justify-between gap-2 border-b border-[var(--border)] px-3">
         <input
-          value={canvas.title}
+          value={canvas.title || ""}
           onChange={(e) => onChange({ ...canvas, title: e.target.value })}
           className="min-w-0 flex-1 bg-transparent text-[14px] font-medium outline-none"
         />
@@ -134,7 +136,7 @@ export function CanvasPanel({
         </div>
       ) : (
         <textarea
-          value={canvas.content}
+          value={canvas.content || ""}
           onChange={(e) => onChange({ ...canvas, content: e.target.value })}
           className="min-h-0 flex-1 bg-transparent p-4 font-[var(--dr-mono)] text-[13.5px] leading-6 outline-none dr-scroll"
           spellCheck={canvas.kind === "document"}
@@ -157,20 +159,21 @@ function PresentationView({
   canvas: CanvasState;
   onChange: (c: CanvasState) => void;
 }) {
-  const slides = canvas.slides?.length
-    ? canvas.slides.map((s) => ({
-        ...s,
-        title: s.title || "Slide",
-        bullets: Array.isArray(s.bullets) ? s.bullets : [],
-      }))
-    : [{ id: "s1", title: canvas.title || "Slide", bullets: [] }];
+  const slides = (canvas.slides?.length ? canvas.slides : [{ id: "s1", title: canvas.title || "Slide", bullets: [] }]).map(
+    (s) => ({
+      id: s?.id || crypto.randomUUID(),
+      title: s?.title || "Slide",
+      bullets: Array.isArray(s?.bullets) ? s.bullets : [],
+      notes: s?.notes,
+    }),
+  );
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     setIndex(0);
   }, [canvas.id]);
-  const safeIndex = Math.min(index, slides.length - 1);
-  const slide = slides[safeIndex];
+  const safeIndex = Math.max(0, Math.min(index, Math.max(0, slides.length - 1)));
+  const slide = slides[safeIndex] || slides[0] || { id: "s1", title: "Slide", bullets: [] as string[] };
 
   const updateSlide = (next: Slide) => {
     const slidesNext = slides.map((s, i) => (i === safeIndex ? next : s));
@@ -232,16 +235,16 @@ function PresentationView({
       <div className="min-h-0 flex-1 overflow-auto px-3 pb-3 dr-scroll">
         <div className="aspect-video rounded-xl bg-white px-8 py-7 text-[#111] shadow-[0_8px_30px_rgba(0,0,0,.18)]">
           <input
-            value={slide?.title || ""}
-            onChange={(e) => updateSlide({ ...slide, id: slide?.id || "s1", title: e.target.value, bullets: slide?.bullets || [] })}
+            value={slide.title || ""}
+            onChange={(e) => updateSlide({ ...slide, id: slide.id || "s1", title: e.target.value, bullets: slide.bullets || [] })}
             className="w-full bg-transparent text-[26px] font-semibold tracking-[-0.03em] outline-none"
           />
           <textarea
-            value={(slide?.bullets || []).join("\n")}
+            value={(slide.bullets || []).join("\n")}
             onChange={(e) =>
               updateSlide({
-                id: slide?.id || "s1",
-                title: slide?.title || "Slide",
+                id: slide.id || "s1",
+                title: slide.title || "Slide",
                 bullets: e.target.value.split("\n"),
               })
             }
@@ -368,21 +371,4 @@ function PdfView({ canvas }: { canvas: CanvasState }) {
       )}
     </div>
   );
-}
-
-function slidesHtml(title: string, slides: Slide[]) {
-  const cards = slides
-    .map(
-      (slide, i) =>
-        `<section class="slide"><div class="num">${i + 1} / ${slides.length}</div><h2>${esc(slide.title)}</h2><ul>${slide.bullets.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></section>`,
-    )
-    .join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;background:#111}.slide{box-sizing:border-box;min-height:100vh;padding:64px 72px;background:#fff;page-break-after:always}h2{font-size:42px;margin:0 0 24px}.num{color:#888;font-size:14px;margin-bottom:20px}ul{font-size:22px;line-height:1.5}</style></head><body>${cards}</body></html>`;
-}
-
-function esc(value: string | undefined) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }

@@ -1,5 +1,7 @@
 import type { CanvasKind, CanvasState, ComposerTool } from "./types";
 
+export { toolChoiceFor, type PluginToolChoice } from "./canvas-data";
+
 export type PluginIconId =
   | "documents"
   | "presentations"
@@ -86,7 +88,13 @@ export function artifactKindForTools(tools: ComposerTool[]): CanvasKind | null {
 export function placeholderCanvasForTools(tools: ComposerTool[]): Omit<CanvasState, "id"> | null {
   const kind = artifactKindForTools(tools);
   if (kind === "presentation") {
-    return { title: "Presentation", language: "slides", kind, content: "", slides: [] };
+    return {
+      title: "Presentation",
+      language: "slides",
+      kind,
+      content: "",
+      slides: [{ id: "s1", title: "Slide 1", bullets: [] }],
+    };
   }
   if (kind === "spreadsheet") {
     return { title: "Spreadsheet", language: "csv", kind, content: "", sheet: { headers: ["Column 1"], rows: [[""]] } };
