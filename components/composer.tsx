@@ -230,7 +230,7 @@ export function Composer({
       )}
 
       <div
-        className="relative rounded-[28px] bg-[var(--bg-composer)]"
+        className="relative overflow-visible rounded-[28px] bg-[var(--bg-composer)]"
         style={{ boxShadow: "var(--shadow-composer)" }}
       >
         <textarea
@@ -248,9 +248,9 @@ export function Composer({
           }}
           className="block max-h-[200px] w-full bg-transparent px-4 pt-3.5 pb-1 text-[16px] leading-6 outline-none placeholder:text-[var(--text-3)]"
         />
-        <div className="flex items-center justify-between px-2 pb-2 pt-1">
-          <div className="flex items-center gap-1">
-          <div ref={menuRef} className="relative">
+        <div className="flex items-center justify-between gap-2 overflow-visible px-2 pb-2 pt-1">
+          <div className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-visible">
+          <div ref={menuRef} className="relative shrink-0">
             <button
               type="button"
               onClick={() => setMenu((v) => !v)}
@@ -324,12 +324,13 @@ export function Composer({
           <button
             type="button"
             onClick={openFilePicker}
-            disabled={disabled || Boolean(uploading)}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+            disabled={Boolean(uploading)}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[var(--plus-border)] px-2.5 text-[var(--text)] hover:bg-[var(--bg-hover)] disabled:opacity-40 sm:px-3"
             aria-label="Upload file"
             title="Upload file"
           >
-            <Paperclip size={18} />
+            <Paperclip size={18} className="shrink-0" />
+            <span className="hidden text-[13px] font-medium leading-none sm:inline">Upload</span>
           </button>
           </div>
           <div className="flex items-center gap-1.5">
@@ -376,7 +377,8 @@ export function Composer({
         type="file"
         multiple
         accept="image/*,.pdf,.txt,.md,.csv,.json,.docx,.py,.js,.ts"
-        className="hidden"
+        className="sr-only"
+        tabIndex={-1}
         onChange={(e) => {
           void pickFiles(e.target.files);
           e.target.value = "";
