@@ -29,17 +29,17 @@ export function MessageThread({
 }) {
   return (
     <div className="mx-auto w-full max-w-[768px] px-4 py-6">
-      {messages.map((m) => (
-        <div key={m.id} className="mb-6 fade-up">
+      {messages.map((m, i) => (
+        <div key={m.id || `m-${i}`} className="mb-6 fade-up">
           {m.role === "user" ? (
             <UserBubble message={m} onEdit={onEdit} />
-          ) : (
+          ) : m.role === "assistant" ? (
             <AssistantBlock
               message={m}
               streaming={streamingId === m.id}
               onPermission={onPermission}
             />
-          )}
+          ) : null}
         </div>
       ))}
     </div>
@@ -52,21 +52,21 @@ function UserBubble({ message, onEdit }: { message: Message; onEdit: (c: string)
       <div className="group max-w-[70%]">
         {message.attachments && message.attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap justify-end gap-2">
-            {message.attachments.map((a) =>
+            {(message.attachments || []).filter(Boolean).map((a, i) =>
               a.kind === "image" && a.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  key={a.id}
+                  key={a.id || `img-${i}`}
                   src={a.url}
-                  alt={a.name}
+                  alt={a.name || "image"}
                   className="max-h-48 rounded-2xl object-cover"
                 />
               ) : (
                 <div
-                  key={a.id}
+                  key={a.id || `file-${i}`}
                   className="rounded-2xl bg-[var(--bg-user)] px-3 py-2 text-xs"
                 >
-                  {a.name}
+                  {a.name || "file"}
                 </div>
               ),
             )}

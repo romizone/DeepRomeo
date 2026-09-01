@@ -41,6 +41,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# leftover create-next-app nest (not the live app)
+/deepromeo-app
+/scripts/audit-pdf.ts
+/scripts/audit-pdf-raw.ts
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

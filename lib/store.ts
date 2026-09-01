@@ -1,7 +1,8 @@
 import { desc, eq } from "drizzle-orm";
 import { persistableConversation } from "./attachments";
+import { hydrateCanvas } from "./canvas-data";
 import { getDb, schema } from "./db";
-import type { Conversation, Message } from "./types";
+import type { CanvasState, Conversation, Message } from "./types";
 
 function parseJson<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
@@ -27,7 +28,15 @@ export function rowToConversation(
     pinned: row.pinned,
     archived: row.archived,
     messages: msgs,
-    canvas: parseJson(row.canvas, null),
+    canvas: (() => {
+      const raw = parseJson<CanvasState | null>(row.canvas, null);
+      if (!raw) return null;
+      try {
+        return hydrateCanvas(raw);
+      } catch {
+        return null;
+      }
+    })(),
     plan: parseJson(row.plan, null),
     deliverable: parseJson(row.deliverable, null),
     createdAt: row.createdAt,

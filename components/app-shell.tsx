@@ -17,9 +17,15 @@ import {
   attachmentsForChatRequest,
   CHAT_STALL_MS,
   EMPTY_ANALYSIS_MESSAGE,
-  persistableConversation,
 } from "@/lib/attachments";
 import { hydrateCanvas } from "@/lib/canvas-data";
+import {
+  listClientRecents,
+  mergeRecents,
+  persistClientConversation,
+  readClientConversation,
+  removeClientConversation,
+} from "@/lib/client-persist";
 import { placeholderCanvasForTools } from "@/lib/plugin-catalog";
 import type {
   Attachment,
@@ -70,34 +76,6 @@ function emptyConv(partial: Partial<Conversation> = {}): Conversation {
   };
 }
 
-function cacheKey(id: string) {
-  return `dr-conv:${id}`;
-}
-
-function readCachedConv(id?: string | null): Conversation | null {
-  if (!id || typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(cacheKey(id));
-    if (!raw) return null;
-    const conv = JSON.parse(raw) as Conversation;
-    return {
-      ...conv,
-      canvas: conv.canvas ? hydrateCanvas(conv.canvas) : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedConv(conv: Conversation) {
-  if (typeof window === "undefined" || !conv.id) return;
-  try {
-    sessionStorage.setItem(cacheKey(conv.id), JSON.stringify(persistableConversation(conv)));
-  } catch {
-    /* quota */
-  }
-}
-
 function applyTheme(theme: "light" | "dark") {
   document.documentElement.setAttribute("data-theme", theme);
 }
@@ -112,7 +90,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
   const [tools, setTools] = useState<ComposerTool[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [conv, setConv] = useState<Conversation>(
-    () => readCachedConv(conversationId) || emptyConv(),
+    () => readClientConversation(conversationId) || emptyConv(),
   );
   const [recents, setRecents] = useState<Conversation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -139,7 +117,23 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
         fetch("/api/projects").then((r) => r.json()).catch(() => ({})),
         fetch("/api/skills").then((r) => r.json()).catch(() => ({})),
       ]);
-      setRecents(Array.isArray(c.conversations) ? c.conversations : []);
+      setRecents(
+        mergeRecents(
+          Array.isArray(c.conversations) ? c.conversations : [],
+          listClientRecents(),
+        ).map((item) =>
+          emptyConv({
+            id: item.id,
+            title: item.title,
+            mode: item.mode,
+            model: item.model,
+            pinned: item.pinned,
+            updatedAt: item.updatedAt,
+            createdAt: item.createdAt,
+            messages: [],
+          }),
+        ),
+      );
       setProjects(Array.isArray(p.projects) ? p.projects : []);
       setSkills(Array.isArray(s.skills) ? s.skills : []);
     } catch {
@@ -163,7 +157,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
   }, [pathname]);
 
   useEffect(() => {
-    if (conv.messages.length) writeCachedConv(conv);
+    if (conv.messages.length) persistClientConversation(conv);
   }, [conv]);
 
   useEffect(() => {
@@ -178,7 +172,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
     if (convRef.current.id === conversationId && (streamingRef.current || convRef.current.messages.length > 0)) {
       return;
     }
-    const cached = readCachedConv(conversationId);
+    const cached = readClientConversation(conversationId);
     if (cached?.messages.length) {
       setConv(cached);
       setMode(cached.mode || "chat");
@@ -193,6 +187,12 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
         if (cancelled || !json?.conversation) return;
         if (streamingRef.current && convRef.current.id === conversationId) return;
         const c = json.conversation as Conversation;
+        if (
+          convRef.current.id === c.id &&
+          convRef.current.messages.length > (c.messages?.length || 0)
+        ) {
+          return;
+        }
         setConv({
           ...c,
           canvas: c.canvas ? hydrateCanvas(c.canvas) : null,
@@ -471,7 +471,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
             }));
           }
           if (type === "saved") {
-            writeCachedConv(convRef.current);
+            persistClientConversation(convRef.current);
             if (!conversationId && localId) router.replace(`/c/${localId}`);
           }
         }
@@ -536,6 +536,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           void loadLists();
         }}
         onDelete={async (id) => {
+          removeClientConversation(id);
           await fetch(`/api/conversations/${id}`, { method: "DELETE" });
           if (conversationId === id) newChat();
           void loadLists();

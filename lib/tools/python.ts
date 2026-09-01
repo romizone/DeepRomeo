@@ -28,28 +28,44 @@ export async function runPython(code: string): Promise<{ stdout: string; stderr:
 
     let stdout = "";
     let stderr = "";
-    const child = spawn("python3", ["-I", "-B", file], {
+    const bins = ["python3", "python"];
+    let child = spawn(bins[0], ["-I", "-B", file], {
       cwd: dir,
       env: { ...process.env, PATH: process.env.PATH || "/usr/bin:/bin", PYTHONIOENCODING: "utf-8" },
     });
+    const bindChild = (proc: ReturnType<typeof spawn>, binIndex: number) => {
+      child = proc;
+      proc.stdout?.on("data", (d: Buffer) => {
+        stdout += d.toString();
+        if (stdout.length > MAX_OUT) stdout = stdout.slice(0, MAX_OUT) + "\n…";
+      });
+      proc.stderr?.on("data", (d: Buffer) => {
+        stderr += d.toString();
+        if (stderr.length > MAX_OUT) stderr = stderr.slice(0, MAX_OUT) + "\n…";
+      });
+      proc.on("error", (error) => {
+        if (binIndex + 1 < bins.length) {
+          bindChild(
+            spawn(bins[binIndex + 1], ["-I", "-B", file], {
+              cwd: dir,
+              env: { ...process.env, PATH: process.env.PATH || "/usr/bin:/bin", PYTHONIOENCODING: "utf-8" },
+            }),
+            binIndex + 1,
+          );
+          return;
+        }
+        finish("", error instanceof Error ? error.message : "Python is not available on this server.");
+      });
+      proc.on("close", () => {
+        if (proc !== child) return;
+        finish(stdout, stderr);
+      });
+    };
+    bindChild(child, 0);
     timer = setTimeout(() => {
       child.kill("SIGKILL");
       stderr += "\n[timed out after 20s]";
       finish(stdout, stderr);
     }, TIMEOUT_MS);
-    child.stdout.on("data", (d: Buffer) => {
-      stdout += d.toString();
-      if (stdout.length > MAX_OUT) stdout = stdout.slice(0, MAX_OUT) + "\n…";
-    });
-    child.stderr.on("data", (d: Buffer) => {
-      stderr += d.toString();
-      if (stderr.length > MAX_OUT) stderr = stderr.slice(0, MAX_OUT) + "\n…";
-    });
-    child.on("error", (error) => {
-      finish("", error instanceof Error ? error.message : "Python is not available on this server.");
-    });
-    child.on("close", () => {
-      finish(stdout, stderr);
-    });
   });
 }
