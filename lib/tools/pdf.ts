@@ -32,16 +32,21 @@ function toPdfText(text: string) {
 
 function wrapLine(text: string, max = 90): string[] {
   if (!text) return [""];
-  const words = text.split(/\s+/);
   const lines: string[] = [];
   let current = "";
-  for (const word of words) {
+  for (const word of text.split(/\s+/)) {
     const next = current ? `${current} ${word}` : word;
     if (next.length > max && current) {
       lines.push(current);
       current = word;
     } else {
       current = next;
+    }
+    // A single token longer than the line (a URL, a long ID) never fit, and
+    // was emitted whole — running off the right edge of the page.
+    while (current.length > max) {
+      lines.push(current.slice(0, max));
+      current = current.slice(max);
     }
   }
   if (current) lines.push(current);

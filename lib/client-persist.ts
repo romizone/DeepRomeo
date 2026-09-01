@@ -85,9 +85,19 @@ export function listClientRecents(): RecentMeta[] {
 
 export function removeClientConversation(id: string) {
   if (typeof window === "undefined") return;
-  sessionStorage.removeItem(convKey(id));
-  localStorage.removeItem(convKey(id));
-  writeIndex(readIndex().filter((item) => item.id !== id));
+  // Storage access throws outright in some privacy modes. Its siblings all
+  // guard for that; this one did not, so a delete aborted mid-way.
+  try {
+    sessionStorage.removeItem(convKey(id));
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.removeItem(convKey(id));
+    writeIndex(readIndex().filter((item) => item.id !== id));
+  } catch {
+    /* ignore */
+  }
 }
 
 export function mergeRecents(api: RecentMeta[], local: RecentMeta[]): RecentMeta[] {

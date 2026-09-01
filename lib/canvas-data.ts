@@ -127,6 +127,27 @@ export function newCanvas(
   return hydrateCanvas(base);
 }
 
+/**
+ * Structural defaults only — kind and language — leaving content alone.
+ *
+ * hydrateCanvas normalizes slides and cells, which is right when a canvas
+ * arrives from the model but destructive while someone is typing into it:
+ * normalizeSlides drops empty bullets and substitutes a default title, so a
+ * newly pressed Enter vanished and a cleared title sprang back. Editors want
+ * this; ingestion wants hydrateCanvas.
+ */
+export function canvasShape(raw: CanvasState): CanvasState {
+  const kind = raw.kind || canvasKindFromLanguage(String(raw.language || "markdown"));
+  return {
+    ...raw,
+    id: raw.id,
+    title: raw.title ?? "",
+    content: raw.content ?? "",
+    kind,
+    language: raw.language || defaultLanguage(kind),
+  };
+}
+
 export function hydrateCanvas(raw: CanvasState | null | undefined): CanvasState {
   const canvas = raw && typeof raw === "object" ? raw : ({} as Partial<CanvasState>);
   const kind = canvas.kind || canvasKindFromLanguage(String(canvas.language || "markdown"));
@@ -225,7 +246,8 @@ export function sheetToCsv(sheet: SpreadsheetData): string {
 }
 
 function csvCell(value: string) {
-  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  // \r matters too: a lone carriage return ends a record for many readers.
+  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
   return value;
 }
 

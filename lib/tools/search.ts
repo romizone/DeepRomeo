@@ -34,26 +34,38 @@ export async function webSearch(query: string, limit = 6): Promise<SearchResult[
   }
   const html = await res.text();
   const results: SearchResult[] = [];
-  const blockRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippetRe = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
-  const titles: { url: string; title: string }[] = [];
+
+  // Titles and snippets used to be collected into two separate arrays and
+  // paired by index. A result without a snippet shifted every later snippet
+  // onto the wrong result. Walk each title and take the snippet that follows
+  // it before the next title instead.
+  const titleRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const snippetRe = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/i;
+
+  const matches: { url: string; title: string; start: number; end: number }[] = [];
   let m: RegExpExecArray | null;
-  while ((m = blockRe.exec(html))) {
+  while ((m = titleRe.exec(html))) {
     let href = m[1];
     const uddg = href.match(/uddg=([^&]+)/);
-    if (uddg) href = decodeURIComponent(uddg[1]);
-    titles.push({ url: href, title: decode(m[2]) });
+    if (uddg) {
+      try {
+        href = decodeURIComponent(uddg[1]);
+      } catch {
+        /* leave the raw href */
+      }
+    }
+    matches.push({ url: href, title: decode(m[2]), start: m.index, end: titleRe.lastIndex });
   }
-  const snippets: string[] = [];
-  while ((m = snippetRe.exec(html))) {
-    snippets.push(decode(m[1]));
-  }
-  for (let i = 0; i < titles.length && results.length < limit; i++) {
-    if (!titles[i].url.startsWith("http")) continue;
+
+  for (let i = 0; i < matches.length && results.length < limit; i++) {
+    const item = matches[i];
+    if (!item.url.startsWith("http")) continue;
+    const region = html.slice(item.end, matches[i + 1]?.start ?? html.length);
+    const snippet = snippetRe.exec(region);
     results.push({
-      title: titles[i].title || titles[i].url,
-      url: titles[i].url,
-      snippet: snippets[i] || "",
+      title: item.title || item.url,
+      url: item.url,
+      snippet: snippet ? decode(snippet[1]) : "",
     });
   }
   return results;

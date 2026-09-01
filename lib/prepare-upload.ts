@@ -95,16 +95,35 @@ async function compressImage(file: File): Promise<{ dataUrl: string; size: numbe
     quality -= 0.1;
     blob = await canvasToJpeg(canvas, quality);
   }
-  const dataUrl = await blobToDataUrl(blob);
-  if (dataUrl.length > IMAGE_DATA_URL_MAX_CHARS) {
-    blob = await canvasToJpeg(canvas, 0.4);
-    const smaller = await blobToDataUrl(blob);
-    if (smaller.length > IMAGE_DATA_URL_MAX_CHARS) {
-      throw new Error("Gambar masih terlalu besar setelah dikompres. Coba crop atau simpan sebagai JPG.");
-    }
-    return { dataUrl: smaller, size: blob.size, mime: "image/jpeg" };
+  let dataUrl = await blobToDataUrl(blob);
+  if (dataUrl.length <= IMAGE_DATA_URL_MAX_CHARS) {
+    return { dataUrl, size: blob.size, mime: "image/jpeg" };
   }
-  return { dataUrl, size: blob.size, mime: "image/jpeg" };
+
+  // The loop above bottoms out at 0.34, because it tests the quality before
+  // lowering it. Retrying at 0.4 produced a *larger* file, so this branch could
+  // only ever throw. Step further down, and shrink the canvas when quality
+  // alone is not enough.
+  for (const step of [0.3, 0.22, 0.15]) {
+    blob = await canvasToJpeg(canvas, step);
+    dataUrl = await blobToDataUrl(blob);
+    if (dataUrl.length <= IMAGE_DATA_URL_MAX_CHARS) {
+      return { dataUrl, size: blob.size, mime: "image/jpeg" };
+    }
+  }
+  const shrunk = document.createElement("canvas");
+  shrunk.width = Math.max(1, Math.round(canvas.width / 2));
+  shrunk.height = Math.max(1, Math.round(canvas.height / 2));
+  const shrunkCtx = shrunk.getContext("2d");
+  if (shrunkCtx) {
+    shrunkCtx.drawImage(canvas, 0, 0, shrunk.width, shrunk.height);
+    blob = await canvasToJpeg(shrunk, 0.5);
+    dataUrl = await blobToDataUrl(blob);
+    if (dataUrl.length <= IMAGE_DATA_URL_MAX_CHARS) {
+      return { dataUrl, size: blob.size, mime: "image/jpeg" };
+    }
+  }
+  throw new Error("Gambar masih terlalu besar setelah dikompres. Coba crop atau simpan sebagai JPG.");
 }
 
 export type PrepareResult =

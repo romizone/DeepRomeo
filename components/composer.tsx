@@ -209,11 +209,14 @@ export function Composer({
     const rec = new SR();
     rec.lang = "en-US";
     rec.interimResults = true;
+    // Dictation used to replace the draft outright; keep what was already
+    // typed and append to it.
+    const draft = text.trim();
     rec.onresult = (e: SpeechRecognitionEvent) => {
-      const t = Array.from(e.results)
+      const heard = Array.from(e.results)
         .map((r) => r[0].transcript)
         .join(" ");
-      setText(t);
+      setText(draft ? `${draft} ${heard}` : heard);
     };
     rec.onend = () => setListening(false);
     recRef.current = rec;

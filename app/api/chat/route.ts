@@ -267,9 +267,17 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   const contentMasker = createStreamMasker((chunk) => send({ type: "content", delta: chunk }));
   const thinkingMasker = createStreamMasker((chunk) => send({ type: "thinking", delta: chunk }));
   let awaitingPermission = false;
+  // ctx.images/ctx.files accumulate across the whole run, so replaying them
+  // after every tool call sent each one repeatedly. The client appends images
+  // without deduplicating, which showed the same picture several times.
+  let sentImages = 0;
+  let sentFiles = 0;
+  let sentSources = 0;
 
   let alreadyShrunk = false;
+  let streamFailure: string | null = null;
 
+  try {
   for (let turn = 0; turn < 12; turn++) {
     const runTurn = () =>
       streamCompletion({
@@ -363,9 +371,14 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       if (ctx.canvas) send({ type: "canvas", canvas: ctx.canvas });
       if (ctx.plan) send({ type: "plan", plan: ctx.plan });
       if (ctx.deliverable) send({ type: "deliverable", deliverable: ctx.deliverable });
-      if (ctx.sources.length) send({ type: "sources", sources: ctx.sources });
-      for (const url of ctx.images) send({ type: "image", url });
-      for (const file of ctx.files) send({ type: "file", file });
+      if (ctx.sources.length > sentSources) {
+        send({ type: "sources", sources: ctx.sources });
+        sentSources = ctx.sources.length;
+      }
+      for (const url of ctx.images.slice(sentImages)) send({ type: "image", url });
+      sentImages = ctx.images.length;
+      for (const file of ctx.files.slice(sentFiles)) send({ type: "file", file });
+      sentFiles = ctx.files.length;
       messages.push({
         role: "tool",
         tool_call_id: call.id,
@@ -384,9 +397,23 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     }
     if (awaitingPermission) break;
   }
+  } catch (error) {
+    // A failure part-way through used to propagate out of runAgent, so the
+    // answer already on the user's screen was never saved and vanished on
+    // reload. Keep what was assembled and record why it stopped.
+    if (!finalContent.trim() && !toolUIs.length) throw error;
+    streamFailure = maskError(error);
+  }
 
   contentMasker.flush();
   thinkingMasker.flush();
+
+  if (streamFailure) {
+    const note = `\n\n_${streamFailure}_`;
+    finalContent += note;
+    send({ type: "content", delta: note });
+    send({ type: "error", message: streamFailure });
+  }
 
   if (!finalContent && !ctx.permission && !toolUIs.length) {
     finalContent = EMPTY_ANALYSIS_MESSAGE;

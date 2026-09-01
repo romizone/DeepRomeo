@@ -56,3 +56,18 @@ test("an unbroken run without whitespace still drains", () => {
   const long = "x".repeat(2000);
   assert.equal(streamThrough([long]), long);
 });
+
+test("provider names are masked before any classification runs", () => {
+  // maskError lives in brand.ts (server-only); this guards the shared table it
+  // depends on: every pattern below must still be rewritten.
+  const cases: [string, RegExp][] = [
+    ["deepseek-v4-flash-vision-exp", /^DeepRomeo Vision Flash$/],
+    ["deepseek-v4-pro", /^DeepRomeo Pro$/],
+    ["Powered by DeepSeek", /^Powered by DeepRomeo$/],
+    ["see api.deepseek.com", /^see DeepRomeo$/],
+    ["google/gemini-3.1-flash-image", /^DeepRomeo Image$/],
+  ];
+  for (const [input, want] of cases) {
+    assert.match(maskProviderText(input), want, `not masked: ${input}`);
+  }
+});

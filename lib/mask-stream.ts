@@ -3,16 +3,21 @@
  * lib/brand.ts re-exports these for the server code paths.
  */
 
+/**
+ * Order matters: the first pattern that matches wins, so every specific form
+ * has to precede the catch-all. `api.deepseek.com` used to sit after
+ * /deepseek[\w.-]*​/ and never fired, leaving a stray "api." behind.
+ */
 const REPLACEMENTS: [RegExp, string][] = [
+  [/(?:https?:\/\/)?api\.deepseek\.com(?:\/[\w./=&?%-]*)?/gi, "DeepRomeo"],
   [/deepseek-v4-flash-vision-exp/gi, "DeepRomeo Vision Flash"],
   [/deepseek-v4-flash/gi, "DeepRomeo Flash"],
   [/deepseek-v4-pro/gi, "DeepRomeo Pro"],
+  [/google\/gemini-[\w.-]+/gi, "DeepRomeo Image"],
+  [/(?:https?:\/\/)?openrouter\.ai(?:\/[\w./=&?%-]*)?/gi, "DeepRomeo"],
+  [/OpenRouter/gi, "DeepRomeo"],
   [/deepseek[\w.-]*/gi, "DeepRomeo"],
   [/DeepSeek/g, "DeepRomeo"],
-  [/openrouter\.ai/gi, ""],
-  [/OpenRouter/gi, ""],
-  [/google\/gemini-[\w.-]+/gi, "DeepRomeo Image"],
-  [/api\.deepseek\.com/gi, ""],
 ];
 
 export function maskProviderText(input: string): string {
@@ -20,7 +25,9 @@ export function maskProviderText(input: string): string {
   for (const [pattern, replacement] of REPLACEMENTS) {
     out = out.replace(pattern, replacement);
   }
-  return out;
+  // Earlier rules deleted their match outright, which left doubled spaces and
+  // orphaned punctuation mid-sentence.
+  return out.replace(/[ \t]{2,}/g, " ");
 }
 
 /**

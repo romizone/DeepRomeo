@@ -123,10 +123,10 @@ function AssistantBlock({
             </span>
           </div>
         ))}
-        {message.images?.map((src) => (
+        {message.images?.map((src, i) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            key={src.slice(0, 40)}
+            key={`${i}-${src.slice(0, 40)}`}
             src={src}
             alt="Generated"
             className="mb-3 max-w-full rounded-2xl"

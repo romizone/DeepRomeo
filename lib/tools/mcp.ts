@@ -58,8 +58,41 @@ interface Session {
  * LSP-style `Content-Length` framing, which no MCP server speaks — so every
  * connector silently failed to hand over its tools.
  */
+/**
+ * Splitting on whitespace broke any argument containing a space — a Windows
+ * path, a directory under "My Documents", a quoted JSON blob. Honour quotes.
+ */
+export function parseArgs(raw: string | null): string[] {
+  if (!raw) return [];
+  const out: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let started = false;
+  for (const ch of raw) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else current += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (started || current) out.push(current);
+      current = "";
+      started = false;
+      continue;
+    }
+    current += ch;
+  }
+  if (started || current) out.push(current);
+  return out;
+}
+
 function openSession(server: McpServerRow): Session {
-  const args = server.args ? server.args.split(/\s+/).filter(Boolean) : [];
+  const args = parseArgs(server.args);
   const child = spawn(/* turbopackIgnore: true */ server.command as string, args, {
     stdio: ["pipe", "pipe", "pipe"],
   });

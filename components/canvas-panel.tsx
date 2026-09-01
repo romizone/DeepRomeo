@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Play, Plus, Trash2, X } from "lucide-react";
-import { hydrateCanvas, slidesToHtml } from "@/lib/canvas-data";
+import { canvasShape, slidesToHtml } from "@/lib/canvas-data";
 import type { CanvasState, Slide, SpreadsheetData } from "@/lib/types";
 import { Markdown } from "./markdown";
 
@@ -15,7 +15,8 @@ export function CanvasPanel({
   onClose: () => void;
   onChange: (c: CanvasState) => void;
 }) {
-  const canvas = hydrateCanvas(incoming);
+  // Shape only: re-normalizing here would fight the person typing.
+  const canvas = canvasShape(incoming);
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
   const [docMode, setDocMode] = useState<"edit" | "preview">("preview");
@@ -68,9 +69,12 @@ export function CanvasPanel({
     }
     const blob = new Blob([body], { type });
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = filename;
     a.click();
+    // Without this the blob is pinned for the lifetime of the document.
+    setTimeout(() => URL.revokeObjectURL(href), 0);
   };
 
   return (
@@ -155,9 +159,11 @@ function PresentationView({
   onChange: (c: CanvasState) => void;
 }) {
   const slides = (canvas.slides?.length ? canvas.slides : [{ id: "s1", title: canvas.title || "Slide", bullets: [] }]).map(
-    (s) => ({
-      id: s?.id || crypto.randomUUID(),
-      title: s?.title || "Slide",
+    (s, i) => ({
+      // `?? ""` not `|| "Slide"`: a title cleared for retyping must stay clear.
+      // A generated id would also change on every render and churn React keys.
+      id: s?.id || `slide-${i}`,
+      title: s?.title ?? "",
       bullets: Array.isArray(s?.bullets) ? s.bullets : [],
       notes: s?.notes,
     }),
@@ -228,14 +234,16 @@ function PresentationView({
           <input
             value={slide.title || ""}
             onChange={(e) => updateSlide({ ...slide, id: slide.id || "s1", title: e.target.value, bullets: slide.bullets || [] })}
+            placeholder="Judul slide"
             className="w-full bg-transparent text-[26px] font-semibold tracking-[-0.03em] outline-none"
           />
           <textarea
             value={(slide.bullets || []).join("\n")}
             onChange={(e) =>
               updateSlide({
+                ...slide,
                 id: slide.id || "s1",
-                title: slide.title || "Slide",
+                title: slide.title ?? "",
                 bullets: e.target.value.split("\n"),
               })
             }

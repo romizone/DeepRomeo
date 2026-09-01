@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  canvasShape,
   hydrateCanvas,
   isEmptyPresentation,
   normalizeSlides,
@@ -103,4 +104,39 @@ test("createPdfBuffer is a real PDF and verify_pdf reports on empty text", () =>
 test("python tool returns output and does not hang", async () => {
   const out = await runPython("print(2 + 2)");
   assert.equal(out.stdout, "4");
+});
+
+test("canvasShape leaves content alone so editing is possible", () => {
+  const editing = {
+    id: "c1",
+    title: "Deck",
+    kind: "presentation" as const,
+    language: "slides",
+    content: "",
+    // A blank bullet is someone who just pressed Enter; a blank title is
+    // someone who cleared it to retype. hydrateCanvas erases both.
+    slides: [{ id: "s1", title: "", bullets: ["baris pertama", ""] }],
+  };
+
+  const shaped = canvasShape(editing);
+  assert.deepEqual(shaped.slides?.[0].bullets, ["baris pertama", ""], "blank bullet must survive");
+  assert.equal(shaped.slides?.[0].title, "", "cleared title must stay cleared");
+  assert.equal(shaped.kind, "presentation");
+  assert.equal(shaped.language, "slides");
+
+  // Ingestion still normalizes, which is what it is for.
+  const ingested = hydrateCanvas(editing);
+  assert.deepEqual(ingested.slides?.[0].bullets, ["baris pertama"]);
+  assert.equal(ingested.slides?.[0].title, "Slide 1");
+});
+
+test("canvasShape fills a missing kind and language", () => {
+  const shaped = canvasShape({
+    id: "c2",
+    title: "Sheet",
+    content: "a,b",
+    language: "csv",
+  } as never);
+  assert.equal(shaped.kind, "spreadsheet");
+  assert.equal(shaped.language, "csv");
 });

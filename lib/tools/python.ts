@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -38,6 +39,11 @@ export async function runPython(code: string): Promise<{ stdout: string; stderr:
     const run = (binIndex: number) => {
       // turbopackIgnore keeps the dynamic binary name from tracing the whole project
       // into the serverless bundle.
+      // Buffer.toString() per chunk splits multi-byte sequences that straddle a
+      // chunk boundary, so any non-ASCII output came back with U+FFFD in it.
+      // StringDecoder holds the partial sequence until the rest arrives.
+      const outDecoder = new StringDecoder("utf8");
+      const errDecoder = new StringDecoder("utf8");
       const proc = spawn(/* turbopackIgnore: true */ BINS[binIndex], ["-I", "-B", file], {
         cwd: dir,
         env: {
@@ -49,11 +55,11 @@ export async function runPython(code: string): Promise<{ stdout: string; stderr:
       active = proc;
 
       proc.stdout?.on("data", (d: Buffer) => {
-        stdout += d.toString();
+        stdout += outDecoder.write(d);
         if (stdout.length > MAX_OUT) stdout = stdout.slice(0, MAX_OUT) + "\n…";
       });
       proc.stderr?.on("data", (d: Buffer) => {
-        stderr += d.toString();
+        stderr += errDecoder.write(d);
         if (stderr.length > MAX_OUT) stderr = stderr.slice(0, MAX_OUT) + "\n…";
       });
       proc.on("error", (error) => {
@@ -65,7 +71,7 @@ export async function runPython(code: string): Promise<{ stdout: string; stderr:
       });
       proc.on("close", () => {
         if (active !== proc) return;
-        finish(stdout, stderr);
+        finish(stdout + outDecoder.end(), stderr + errDecoder.end());
       });
     };
 
