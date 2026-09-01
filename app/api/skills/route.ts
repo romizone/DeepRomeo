@@ -1,5 +1,6 @@
 import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { badRequest, readJsonObject, readOptionalString, readString } from "@/lib/api-input";
 
 export async function GET() {
   try {
@@ -21,33 +22,38 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as {
-    name: string;
-    description: string;
-    instructions: string;
-    tools?: string[];
-    markdown?: string;
-  };
-  const instructions = body.markdown || body.instructions || "";
+  const body = await readJsonObject(req);
+  if (!body) return badRequest("Body harus berupa objek JSON.");
+  const name = readString(body, "name");
+  if (!name) return badRequest("Field 'name' wajib diisi.");
+  const instructions = readOptionalString(body, "markdown") || readOptionalString(body, "instructions") || "";
+  const tools = Array.isArray(body.tools) ? body.tools.filter((t) => typeof t === "string") : [];
   const item = {
     id: crypto.randomUUID(),
-    slug: (body.name || "skill")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, ""),
-    name: body.name,
-    description: body.description || "",
+    slug:
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "skill",
+    name,
+    description: readOptionalString(body, "description") || "",
     instructions,
-    tools: JSON.stringify(body.tools || []),
+    tools: JSON.stringify(tools),
     icon: "sparkles",
     builtin: false,
   };
   await getDb().insert(schema.skills).values(item);
-  return Response.json({ skill: { ...item, tools: body.tools || [] } });
+  return Response.json({ skill: { ...item, tools } });
 }
 
 export async function DELETE(req: Request) {
-  const { id } = (await req.json()) as { id: string };
+  const body = await readJsonObject(req);
+  const id = body && readString(body, "id");
+  if (!id) return badRequest("Field 'id' wajib diisi.");
+  // Built-in skills are re-seeded on every boot, so deleting one is a no-op
+  // that looks like success. Say so instead.
+  const rows = await getDb().select().from(schema.skills).where(eq(schema.skills.id, id));
+  if (rows[0]?.builtin) return badRequest("GPT bawaan tidak bisa dihapus.");
   await getDb().delete(schema.skills).where(eq(schema.skills.id, id));
   return Response.json({ ok: true });
 }

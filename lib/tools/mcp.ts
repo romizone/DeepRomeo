@@ -103,8 +103,19 @@ function openSession(server: McpServerRow): Session {
   child.on("error", (error) => fail(error instanceof Error ? error : new Error("MCP spawn failed")));
   child.on("close", () => fail(new Error("MCP server closed the connection")));
 
+  // A server that has already exited leaves stdin closed; an unhandled 'error'
+  // on the stream would take the whole process down with it.
+  child.stdin.on("error", (error) =>
+    fail(error instanceof Error ? error : new Error("MCP stdin closed")),
+  );
+
   const write = (msg: JsonRpc) => {
-    child.stdin.write(`${JSON.stringify(msg)}\n`);
+    if (failure || child.stdin.destroyed || !child.stdin.writable) return;
+    try {
+      child.stdin.write(`${JSON.stringify(msg)}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error : new Error("MCP write failed"));
+    }
   };
 
   return {

@@ -32,6 +32,10 @@ export interface ToolContext {
 }
 
 // [\s\S] rather than the dotAll flag, which needs an ES2018 target.
+const MAX_SHEET_ROWS = 50_000;
+const MAX_SHEET_COLS = 1_000;
+
+// [\s\S] rather than the dotAll flag, which needs an ES2018 target.
 const DATA_URL_RE = /^data:([^;,]+);base64,([\s\S]*)$/;
 
 const DATA_URL_EXT: Record<string, string> = {
@@ -287,6 +291,18 @@ async function runTool(
     if (cell && Number.isInteger(cell.row) && Number.isInteger(cell.col)) {
       const row = Number(cell.row);
       const col = Number(cell.col);
+      // row/col come straight from the model. Padding out to an arbitrary index
+      // allocates that many rows/columns, so a single absurd number exhausts
+      // memory before anything else gets a say.
+      if (row < 0 || col < 0 || row > MAX_SHEET_ROWS || col > MAX_SHEET_COLS) {
+        return {
+          content: JSON.stringify({
+            ok: false,
+            error: `Cell out of range (max row ${MAX_SHEET_ROWS}, max column ${MAX_SHEET_COLS}).`,
+          }),
+          ctx,
+        };
+      }
       const nextRows = sheet.rows.map((r) => [...r]);
       while (nextRows.length <= row) nextRows.push(Array.from({ length: sheet.headers.length }, () => ""));
       const width = Math.max(sheet.headers.length, col + 1);

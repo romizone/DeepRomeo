@@ -4,6 +4,22 @@ import { hydrateCanvas } from "./canvas-data";
 import { getDb, schema } from "./db";
 import type { CanvasState, Conversation, Message } from "./types";
 
+/**
+ * messages.id is a global PRIMARY KEY, but a message id is only unique inside
+ * its conversation — and the upsert clears just this conversation's rows before
+ * reinserting. Two conversations carrying the same message id (a duplicated or
+ * forked thread) collided, and the constraint error aborted the whole write.
+ * The row key is storage-only: reads take message identity from the payload.
+ */
+function messageRowId(conversationId: string, messageId: string): string {
+  return `${conversationId}:${messageId}`;
+}
+
+function messageIdFromRow(conversationId: string, rowId: string): string {
+  const prefix = `${conversationId}:`;
+  return rowId.startsWith(prefix) ? rowId.slice(prefix.length) : rowId;
+}
+
 function parseJson<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
   try {
@@ -67,7 +83,14 @@ export async function getConversation(id: string): Promise<Conversation | null> 
     .from(schema.messages)
     .where(eq(schema.messages.conversationId, id));
   msgRows.sort((a, b) => a.createdAt - b.createdAt);
-  const messages = msgRows.map((m) => parseJson<Message>(m.payload, { id: m.id, role: "user", content: "", createdAt: m.createdAt }));
+  const messages = msgRows.map((m) =>
+    parseJson<Message>(m.payload, {
+      id: messageIdFromRow(id, m.id),
+      role: "user",
+      content: "",
+      createdAt: m.createdAt,
+    }),
+  );
   return rowToConversation(row, messages);
 }
 
@@ -95,7 +118,7 @@ export async function upsertConversation(conv: Conversation) {
     updatedAt: next.updatedAt,
   };
   const rows = next.messages.map((m) => ({
-    id: m.id,
+    id: messageRowId(next.id, m.id),
     conversationId: next.id,
     role: m.role,
     payload: JSON.stringify(m),

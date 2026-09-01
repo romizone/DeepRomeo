@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildCompletionBody,
+  capHistory,
   forcesToolCall,
   isContextOverflow,
   providerErrorMessage,
@@ -87,4 +88,70 @@ test("context-overflow wording is recognised across phrasings", () => {
   ]) {
     assert.equal(isContextOverflow(message), false, `wrongly matched: ${message}`);
   }
+});
+
+function msg(role, content, extra) {
+  return { role, content, ...(extra || {}) };
+}
+const chars = (n) => "x".repeat(n);
+
+test("capHistory drops old turns but keeps the system prompt", () => {
+  const messages = [
+    msg("system", chars(100)),
+    msg("user", chars(5000)),
+    msg("assistant", chars(5000)),
+    msg("user", chars(5000)),
+    msg("assistant", chars(5000)),
+    msg("user", chars(1000)),
+  ];
+  capHistory(messages, 3000);
+  assert.equal(messages[0].role, "system", "system prompt must survive");
+  assert.equal(messages[messages.length - 1].content, chars(1000), "live question must survive");
+  assert.ok(messages.length < 6, "something should have been dropped");
+});
+
+test("capHistory never orphans a tool result from its assistant message", () => {
+  const messages = [
+    msg("system", chars(100)),
+    msg("user", chars(60_000)),
+    msg("assistant", chars(60_000)),
+    msg("user", chars(500)),
+    msg("assistant", null, { tool_calls: [{ id: "c1", type: "function", function: { name: "f", arguments: "{}" } }] }),
+    msg("tool", chars(200), { tool_call_id: "c1" }),
+  ];
+  capHistory(messages, 1000);
+
+  const announced = messages.filter((m) => m.tool_calls).flatMap((m) => m.tool_calls.map((t) => t.id));
+  const results = messages.filter((m) => m.role === "tool").map((m) => m.tool_call_id);
+  for (const id of results) {
+    assert.ok(announced.includes(id), `tool result ${id} lost its assistant message`);
+  }
+  assert.ok(
+    messages.some((m) => m.role === "user"),
+    "the live user turn must not be dropped",
+  );
+});
+
+test("an oversized live turn is shortened, not deleted", () => {
+  const messages = [
+    msg("system", chars(100)),
+    msg("user", "PERTANYAAN " + chars(200_000)),
+    msg("assistant", null, { tool_calls: [{ id: "c1", type: "function", function: { name: "f", arguments: "{}" } }] }),
+    msg("tool", chars(100), { tool_call_id: "c1" }),
+  ];
+  capHistory(messages, 50_000);
+
+  const user = messages.find((m) => m.role === "user");
+  assert.ok(user, "the question must still be there");
+  assert.match(user.content, /^PERTANYAAN /, "the start of the question is what matters");
+  assert.ok(user.content.length < 200_000, "it should have been shortened");
+  assert.match(user.content, /\[truncated\]$/, "shortening must be marked");
+  assert.equal(messages.filter((m) => m.role === "tool").length, 1, "tool result kept");
+});
+
+test("history under budget is left alone", () => {
+  const messages = [msg("system", chars(10)), msg("user", chars(10)), msg("assistant", chars(10))];
+  const before = JSON.stringify(messages);
+  capHistory(messages, 100_000);
+  assert.equal(JSON.stringify(messages), before);
 });

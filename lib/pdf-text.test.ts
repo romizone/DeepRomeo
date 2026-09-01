@@ -43,3 +43,35 @@ test("a long document is not silently cut off part-way", async () => {
   assert.match(text, /Halaman 41 /, "stopped at the old 40-stream ceiling");
   assert.match(text, new RegExp(`Halaman ${pages} `), "last page missing");
 });
+
+test("a decompression bomb cannot exhaust memory", async () => {
+  const { deflateSync } = await import("node:zlib");
+  // ~500KB on disk, 200MB inflated. Checking the size after buffering the
+  // whole stream would already have blown the heap.
+  const bomb = deflateSync(Buffer.alloc(200 * 1024 * 1024, 0x41));
+  const pdf = Buffer.concat([
+    Buffer.from(`%PDF-1.4\n1 0 obj<</Length ${bomb.length}/Filter/FlateDecode>>stream\n`, "latin1"),
+    bomb,
+    Buffer.from("\nendstream\nendobj\ntrailer<</Root 1 0 R>>\n%%EOF\n", "latin1"),
+  ]);
+
+  const before = process.memoryUsage().rss;
+  const text = await extractPdfTextFromBytes(new Uint8Array(pdf));
+  const grewMb = (process.memoryUsage().rss - before) / 1024 / 1024;
+
+  assert.ok(grewMb < 300, `memory grew ${grewMb.toFixed(0)}MB — the bomb was buffered whole`);
+  assert.equal(typeof text, "string");
+});
+
+test("bounding the bomb does not break ordinary compressed PDFs", async () => {
+  const { deflateSync } = await import("node:zlib");
+  const body = Buffer.from("BT /F1 12 Tf 20 700 Td (Teks nyata harus tetap terbaca) Tj ET\n", "latin1");
+  const d = deflateSync(body);
+  const pdf = Buffer.concat([
+    Buffer.from(`%PDF-1.4\n1 0 obj<</Length ${d.length}/Filter/FlateDecode>>stream\n`, "latin1"),
+    d,
+    Buffer.from("\nendstream\nendobj\ntrailer<</Root 1 0 R>>\n%%EOF\n", "latin1"),
+  ]);
+  const text = await extractPdfTextFromBytes(new Uint8Array(pdf));
+  assert.match(text, /Teks nyata harus tetap terbaca/);
+});

@@ -21,6 +21,7 @@ import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import {
   buildCompletionBody,
+  capHistory,
   isContextOverflow,
   providerErrorMessage,
   type ToolChoice,
@@ -423,28 +424,6 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     });
   }
   send({ type: "saved", conversation: { id: conv.id, title: conv.title } });
-}
-
-/** Drops the oldest turns, never the system prompt or the newest user turn. */
-function capHistory(messages: ProviderMessage[], budget: number) {
-  const measure = (m: ProviderMessage) => {
-    if (typeof m.content === "string") return m.content.length;
-    if (Array.isArray(m.content)) {
-      return m.content.reduce(
-        (n, part) => n + (part.type === "text" ? part.text.length : part.image_url.url.length),
-        0,
-      );
-    }
-    return 0;
-  };
-
-  let total = messages.reduce((n, m) => n + measure(m), 0);
-  let drop = 1;
-  while (total > budget && drop < messages.length - 1) {
-    total -= measure(messages[drop]);
-    drop++;
-  }
-  if (drop > 1) messages.splice(1, drop - 1);
 }
 
 function displayToolName(name: string) {

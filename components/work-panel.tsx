@@ -48,6 +48,10 @@ export function WorkPanel({
             {deliverable.html ? (
               <iframe
                 title="Preview"
+                // This HTML is written by the model. Without a sandbox it runs
+                // on the app's origin, where chat history lives in localStorage
+                // and every API route answers same-origin requests.
+                sandbox=""
                 className="h-[420px] w-full rounded-xl border border-[var(--border)] bg-white"
                 srcDoc={deliverable.html}
               />

@@ -33,7 +33,10 @@ export async function POST(req: NextRequest) {
   const maxBytes = serverUploadMaxBytes();
   const contentLength = Number(req.headers.get("content-length") || 0);
   if (contentLength > maxBytes + 64_000) {
-    return Response.json({ error: tooLargeError("upload.pdf", maxBytes) }, { status: 413 });
+    // The filename is only known after parsing the body, which is exactly what
+    // is too big to parse — so keep the message generic rather than calling
+    // every oversized upload a PDF.
+    return Response.json({ error: tooLargeError("", maxBytes) }, { status: 413 });
   }
 
   let form: FormData;

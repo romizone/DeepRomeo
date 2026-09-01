@@ -45,16 +45,51 @@ function stringsFromPdfSource(source: string): string {
   return chunks.join(" ").replace(/[ \t]{2,}/g, " ").replace(/\s+\n/g, "\n").trim();
 }
 
-async function inflateBytes(payload: Uint8Array): Promise<Uint8Array | null> {
+/**
+ * Ceiling on what a single compressed stream may expand to.
+ *
+ * Buffering the whole decompression first and checking its size afterwards is
+ * too late: a ~500KB PDF holding one deflate bomb expands to hundreds of
+ * megabytes and kills the process before any limit is consulted. This runs in
+ * the browser as well as on the server, so an unbounded inflate takes down a
+ * visitor's tab. Read the stream incrementally and abandon it the moment it
+ * outgrows the budget.
+ */
+const MAX_SINGLE_STREAM_BYTES = 8 * 1024 * 1024;
+
+async function inflateBytes(payload: Uint8Array, limit: number): Promise<Uint8Array | null> {
   if (typeof DecompressionStream === "undefined") return null;
   const copy = new Uint8Array(payload.byteLength);
   copy.set(payload);
   const part = copy.buffer as ArrayBuffer;
+  const ceiling = Math.max(0, Math.min(limit, MAX_SINGLE_STREAM_BYTES));
   for (const format of ["deflate", "deflate-raw"] as const) {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
       const stream = new Blob([part]).stream().pipeThrough(new DecompressionStream(format));
-      return new Uint8Array(await new Response(stream).arrayBuffer());
+      reader = stream.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        total += value.byteLength;
+        if (total > ceiling) {
+          await reader.cancel().catch(() => {});
+          return null;
+        }
+        chunks.push(value);
+      }
+      const out = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        out.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return out;
     } catch {
+      await reader?.cancel().catch(() => {});
       /* try the other wrapper */
     }
   }
@@ -85,7 +120,14 @@ async function inflatePdfStreams(data: Uint8Array): Promise<Uint8Array> {
     const end = raw.indexOf("endstream", start);
     if (end < 0) break;
     const payload = data.subarray(start, end);
-    const inflated = await inflateBytes(payload.byteLength > 12 ? payload.subarray(0, payload.byteLength - (raw[end - 1] === "\n" ? 1 : 0)) : payload);
+    const remaining = MAX_INFLATED_BYTES - inflatedBytes;
+    if (remaining <= 0) break;
+    const inflated = await inflateBytes(
+      payload.byteLength > 12
+        ? payload.subarray(0, payload.byteLength - (raw[end - 1] === "\n" ? 1 : 0))
+        : payload,
+      remaining,
+    );
     if (inflated && inflated.byteLength > 16) {
       parts.push(inflated);
       inflatedBytes += inflated.byteLength;

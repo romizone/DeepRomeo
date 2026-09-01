@@ -1,5 +1,6 @@
 import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { badRequest, readJsonObject, readOptionalString, readString } from "@/lib/api-input";
 
 export async function GET() {
   try {
@@ -11,14 +12,14 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const { name, instructions } = (await req.json()) as {
-    name: string;
-    instructions?: string;
-  };
+  const body = await readJsonObject(req);
+  if (!body) return badRequest("Body harus berupa objek JSON.");
+  const name = readString(body, "name");
+  if (!name) return badRequest("Field 'name' wajib diisi.");
   const item = {
     id: crypto.randomUUID(),
     name,
-    instructions: instructions || "",
+    instructions: readOptionalString(body, "instructions") || "",
     createdAt: Date.now(),
   };
   await getDb().insert(schema.projects).values(item);
@@ -26,11 +27,15 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { id, name, instructions } = (await req.json()) as {
-    id: string;
-    name?: string;
-    instructions?: string;
-  };
+  const body = await readJsonObject(req);
+  if (!body) return badRequest("Body harus berupa objek JSON.");
+  const id = readString(body, "id");
+  if (!id) return badRequest("Field 'id' wajib diisi.");
+  const name = readString(body, "name");
+  const instructions = readOptionalString(body, "instructions");
+  if (name === null && instructions === undefined) {
+    return badRequest("Tidak ada yang diubah: sertakan 'name' atau 'instructions'.");
+  }
   await getDb()
     .update(schema.projects)
     .set({
@@ -42,7 +47,9 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { id } = (await req.json()) as { id: string };
+  const body = await readJsonObject(req);
+  const id = body && readString(body, "id");
+  if (!id) return badRequest("Field 'id' wajib diisi.");
   await getDb().delete(schema.projects).where(eq(schema.projects.id, id));
   return Response.json({ ok: true });
 }

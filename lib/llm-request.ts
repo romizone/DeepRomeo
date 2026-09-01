@@ -62,3 +62,61 @@ const CONTEXT_OVERFLOW_RE =
 export function isContextOverflow(message: string): boolean {
   return CONTEXT_OVERFLOW_RE.test(message);
 }
+
+const MIN_KEPT_USER_CHARS = 2_000;
+const TRUNCATION_NOTE = "\n\n[truncated]";
+
+function measureMessage(m: ProviderMessage): number {
+  if (typeof m.content === "string") return m.content.length;
+  if (Array.isArray(m.content)) {
+    return m.content.reduce(
+      (n, part) => n + (part.type === "text" ? part.text.length : part.image_url.url.length),
+      0,
+    );
+  }
+  return 0;
+}
+
+/**
+ * Trims replayed history to a character budget.
+ *
+ * Only history older than the live exchange may go. The live exchange is the
+ * newest user turn plus everything after it — its tool round-trips. Trimming
+ * into that either deletes the question the model is answering, or leaves a
+ * tool result whose announcing assistant message is gone, which the provider
+ * rejects outright.
+ *
+ * When the live exchange alone overshoots (a large attachment), the newest
+ * turn's text is shortened instead of dropped, so the question survives.
+ */
+export function capHistory(messages: ProviderMessage[], budget: number): void {
+  if (messages.length < 2) return;
+
+  let liveFrom = messages.length - 1;
+  for (let i = messages.length - 1; i >= 1; i--) {
+    if (messages[i].role === "user") {
+      liveFrom = i;
+      break;
+    }
+  }
+
+  let total = messages.reduce((n, m) => n + measureMessage(m), 0);
+  let drop = 1;
+  while (total > budget && drop < liveFrom) {
+    total -= measureMessage(messages[drop]);
+    drop++;
+  }
+  if (drop > 1) {
+    messages.splice(1, drop - 1);
+    liveFrom -= drop - 1;
+  }
+  if (total <= budget) return;
+
+  const live = messages[liveFrom];
+  if (!live || typeof live.content !== "string") return;
+  const excess = total - budget;
+  const keep = Math.max(MIN_KEPT_USER_CHARS, live.content.length - excess - TRUNCATION_NOTE.length);
+  if (keep < live.content.length) {
+    live.content = live.content.slice(0, keep) + TRUNCATION_NOTE;
+  }
+}
