@@ -2,7 +2,12 @@ import { NextRequest } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 import { extractFileText } from "@/lib/tools/files";
-import { serverUploadMaxBytes, tooLargeError, truncateExtractedText } from "@/lib/attachments";
+import {
+  IMAGE_DATA_URL_MAX_CHARS,
+  serverUploadMaxBytes,
+  tooLargeError,
+  truncateExtractedText,
+} from "@/lib/attachments";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -60,16 +65,21 @@ export async function POST(req: NextRequest) {
     fs.writeFileSync(dest, buf);
     const extracted = await withTimeout(
       extractFileText(dest, file.type || "application/octet-stream", file.name),
-      40_000,
+      15_000,
       "Gagal mengekstrak file (waktu habis). Coba file yang lebih kecil.",
     );
     const text = extracted.kind === "file" ? truncateExtractedText(extracted.text || "") : extracted.text;
-    const publicUrl = `/api/files/${id}${ext}`;
+    const mime = file.type || (extracted.kind === "image" ? "image/png" : "application/octet-stream");
+    let publicUrl = `/api/files/${id}${ext}`;
+    if (extracted.kind === "image") {
+      const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
+      if (dataUrl.length <= IMAGE_DATA_URL_MAX_CHARS) publicUrl = dataUrl;
+    }
     return Response.json({
       attachment: {
         id,
         name: file.name,
-        mime: file.type || (extracted.kind === "image" ? "image/png" : "application/octet-stream"),
+        mime,
         size: file.size,
         url: publicUrl,
         kind: extracted.kind,

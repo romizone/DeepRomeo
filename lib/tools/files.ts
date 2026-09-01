@@ -17,11 +17,13 @@ export async function extractFileText(filePath: string, mime: string, originalNa
 
   if (ext === ".pdf" || mime === "application/pdf") {
     try {
-      const { extractText } = await import("unpdf");
+      const { extractPdfTextFromBytes } = await import("@/lib/pdf-text");
       const data = new Uint8Array(await fsPromises.readFile(filePath));
-      const result = await extractText(data);
-      const text = Array.isArray(result.text) ? result.text.join("\n") : String(result.text || "");
-      return { kind: "file" as const, text: truncateExtractedText(text) };
+      const text = await extractPdfTextFromBytes(data);
+      return {
+        kind: "file" as const,
+        text: truncateExtractedText(text || `[Could not read PDF: ${originalName}]`),
+      };
     } catch {
       return { kind: "file" as const, text: `[Could not read PDF: ${originalName}]` };
     }

@@ -30,5 +30,11 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "lib/attachments.test.ts", "lib/canvas-data.test.ts", "scripts"]
+  "exclude": [
+    "node_modules",
+    "lib/attachments.test.ts",
+    "lib/canvas-data.test.ts",
+    "lib/pdf-text.test.ts",
+    "scripts"
+  ]
 }

@@ -3,6 +3,8 @@ import type { Attachment } from "./types";
 /** Vercel serverless request body is ~4.5MB; leave room for multipart headers. */
 export const VERCEL_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 export const LOCAL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+/** Keep compressed image data URLs in chat JSON (under the 4.5MB platform cap). */
+export const IMAGE_DATA_URL_MAX_CHARS = 480_000;
 export const EXTRACT_CHARS_PER_FILE = 12_000;
 export const EXTRACT_CHARS_TOTAL = 36_000;
 export const UPLOAD_TIMEOUT_MS = 45_000;
@@ -50,8 +52,10 @@ export function truncateExtractedText(text: string, limit = EXTRACT_CHARS_PER_FI
 export function sanitizeAttachment(attachment: Attachment, perFileLimit = EXTRACT_CHARS_PER_FILE): Attachment {
   const isFile = attachment.kind === "file";
   const rawUrl = attachment.url || "";
-  const url =
-    rawUrl.startsWith("data:") && (isFile || rawUrl.length > 80_000) ? "" : rawUrl;
+  let url = rawUrl;
+  if (rawUrl.startsWith("data:")) {
+    if (isFile || rawUrl.length > IMAGE_DATA_URL_MAX_CHARS) url = "";
+  }
   return {
     id: attachment.id,
     name: attachment.name,

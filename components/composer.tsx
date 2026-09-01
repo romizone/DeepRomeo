@@ -13,10 +13,12 @@ import {
   X,
 } from "lucide-react";
 import {
+  attachmentsForChatRequest,
   clientUploadMaxBytes,
   tooLargeError,
   UPLOAD_TIMEOUT_MS,
 } from "@/lib/attachments";
+import { prepareLocalAttachment } from "@/lib/prepare-upload";
 import { PLUGIN_CATALOG, composerToolLabel } from "@/lib/plugin-catalog";
 import type { Attachment, ComposerTool, Mode } from "@/lib/types";
 import { PluginIcon } from "./plugin-icons";
@@ -122,6 +124,45 @@ export function Composer({
     }
   };
 
+  const uploadViaServer = async (file: File, maxBytes: number): Promise<Attachment | null> => {
+    if (file.size > maxBytes) {
+      setUploadError(tooLargeError(file.name, maxBytes));
+      return null;
+    }
+    const fd = new FormData();
+    fd.append("file", file);
+    const ac = new AbortController();
+    const timer = window.setTimeout(() => ac.abort(), UPLOAD_TIMEOUT_MS);
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: fd, signal: ac.signal });
+      let json: { attachment?: Attachment; error?: string } = {};
+      try {
+        json = (await res.json()) as { attachment?: Attachment; error?: string };
+      } catch {
+        json = {};
+      }
+      if (!res.ok || !json.attachment) {
+        setUploadError(
+          json.error ||
+            (res.status === 413
+              ? tooLargeError(file.name, maxBytes)
+              : `Gagal mengunggah ${file.name}`),
+        );
+        return null;
+      }
+      return json.attachment;
+    } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        setUploadError(`Gagal mengekstrak ${file.name} (waktu habis). Coba file yang lebih kecil.`);
+      } else {
+        setUploadError(`Gagal mengunggah ${file.name}`);
+      }
+      return null;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
   const pickFiles = async (list: FileList | null) => {
     if (!list?.length) return;
     onVision?.();
@@ -130,43 +171,31 @@ export function Composer({
     setUploadError(null);
     try {
       for (const file of Array.from(list)) {
-        if (file.size > maxBytes) {
-          setUploadError(tooLargeError(file.name, maxBytes));
-          continue;
-        }
         setUploading(file.name);
-        const fd = new FormData();
-        fd.append("file", file);
-        const ac = new AbortController();
-        const timer = window.setTimeout(() => ac.abort(), UPLOAD_TIMEOUT_MS);
-        try {
-          const res = await fetch("/api/upload", { method: "POST", body: fd, signal: ac.signal });
-          let json: { attachment?: Attachment; error?: string } = {};
-          try {
-            json = (await res.json()) as { attachment?: Attachment; error?: string };
-          } catch {
-            json = {};
-          }
-          if (!res.ok || !json.attachment) {
-            setUploadError(
-              json.error ||
-                (res.status === 413
-                  ? tooLargeError(file.name, maxBytes)
-                  : `Gagal mengunggah ${file.name}`),
-            );
+        const local = await prepareLocalAttachment(file);
+        if (local.ok) {
+          next.push(local.attachment);
+          if (JSON.stringify(attachmentsForChatRequest(next)).length > 3_200_000) {
+            next.pop();
+            setUploadError("Terlalu banyak file sekaligus. Hapus sebagian lalu unggah lagi.");
             continue;
           }
-          next.push(json.attachment);
           onAttachments([...next]);
-        } catch (error) {
-          if ((error as Error).name === "AbortError") {
-            setUploadError(`Gagal mengekstrak ${file.name} (waktu habis). Coba file yang lebih kecil.`);
-          } else {
-            setUploadError(`Gagal mengunggah ${file.name}`);
-          }
-        } finally {
-          window.clearTimeout(timer);
+          continue;
         }
+        if (local.serverFallback) {
+          const uploaded = await uploadViaServer(file, maxBytes);
+          if (uploaded) {
+            next.push(uploaded);
+            onAttachments([...next]);
+          }
+          continue;
+        }
+        setUploadError(
+          !local.error || local.error === "SERVER"
+            ? `Gagal mengunggah ${file.name}`
+            : local.error,
+        );
       }
     } catch {
       setUploadError("Gagal mengunggah file. Coba lagi.");
@@ -215,7 +244,7 @@ export function Composer({
         </div>
       )}
       {uploading && (
-        <p className="mb-2 px-1 text-[12px] text-[var(--text-3)]">Mengunggah {uploading}…</p>
+        <p className="mb-2 px-1 text-[12px] text-[var(--text-3)]">Menyiapkan {uploading}…</p>
       )}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2 px-1">

@@ -2,14 +2,17 @@
   "name": "deepromeo",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:attachments": "node --experimental-strip-types --test lib/attachments.test.ts",
+    "test:attachments": "node --experimental-strip-types --test lib/attachments.test.ts lib/pdf-text.test.ts",
     "test:plugins": "node --experimental-strip-types --test lib/canvas-data.test.ts",
-    "test": "node --experimental-strip-types --test lib/attachments.test.ts lib/canvas-data.test.ts"
+    "test": "node --experimental-strip-types --test lib/attachments.test.ts lib/canvas-data.test.ts lib/pdf-text.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

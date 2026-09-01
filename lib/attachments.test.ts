@@ -50,6 +50,18 @@ test("three large PDF texts still fit in the chat message builder", () => {
   ]);
   assert.equal(kept[0].url, "/api/files/abc.png");
 
+  const photo = sanitizeAttachments([
+    {
+      id: "img-2",
+      name: "photo.jpg",
+      mime: "image/jpeg",
+      size: 80_000,
+      url: `data:image/jpeg;base64,${"A".repeat(120_000)}`,
+      kind: "image",
+    },
+  ]);
+  assert.match(photo[0].url, /^data:image\/jpeg/);
+
   const payload = attachmentsForChatRequest(attachments);
   const json = JSON.stringify({ message: "analisis", attachments: payload });
   assert.ok(json.length < 160_000, `payload ${json.length} should stay well under Vercel 4.5MB`);
