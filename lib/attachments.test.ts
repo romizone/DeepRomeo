@@ -15,12 +15,15 @@ import {
 } from "./attachments.ts";
 
 test("truncates per file and marks [truncated]", () => {
-  const out = truncateExtractedText("A".repeat(80_000));
+  // Sized off the constant so raising the budget cannot quietly void the test.
+  const out = truncateExtractedText("A".repeat(EXTRACT_CHARS_PER_FILE * 2));
   assert.ok(out.length <= EXTRACT_CHARS_PER_FILE);
   assert.ok(out.endsWith(TRUNCATION_MARK));
 });
 
 test("three large PDF texts still fit in the chat message builder", () => {
+  // Each file must overshoot the per-file budget for truncation to be exercised.
+  const perFileOvershoot = Math.ceil((EXTRACT_CHARS_PER_FILE * 1.5) / 12);
   const attachments = [1, 2, 3].map((i) => ({
     id: `id-${i}`,
     name: `paper-${i}.pdf`,
@@ -28,7 +31,7 @@ test("three large PDF texts still fit in the chat message builder", () => {
     size: 6_000_000,
     url: "data:application/pdf;base64,AAAA",
     kind: "file" as const,
-    text: `PDF ${i} body `.repeat(10_000),
+    text: `PDF ${i} body `.repeat(perFileOvershoot),
   }));
 
   const sanitized = sanitizeAttachments(attachments);
@@ -66,7 +69,10 @@ test("three large PDF texts still fit in the chat message builder", () => {
 
   const payload = attachmentsForChatRequest(attachments);
   const json = JSON.stringify({ message: "analisis", attachments: payload });
-  assert.ok(json.length < 160_000, `payload ${json.length} should stay well under Vercel 4.5MB`);
+  assert.ok(
+    json.length < EXTRACT_CHARS_TOTAL + 40_000,
+    `payload ${json.length} should track the text budget and stay far under Vercel 4.5MB`,
+  );
 
   const user = buildProviderUserText("analisis", attachments);
   assert.match(user, /^analisis/);

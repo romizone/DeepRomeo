@@ -19,15 +19,24 @@ import { listMcpTools } from "@/lib/tools/mcp";
 import { pluginTools } from "@/lib/tools/plugins";
 import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
-import { buildCompletionBody, providerErrorMessage, type ToolChoice } from "@/lib/llm-request";
+import {
+  buildCompletionBody,
+  isContextOverflow,
+  providerErrorMessage,
+  type ToolChoice,
+} from "@/lib/llm-request";
 import type { ProviderMessage } from "@/lib/llm-types";
 import type { Attachment, CanvasState, ComposerTool, Message, ModelId, Mode } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-/** Replaying an unbounded history eventually overflows the context window. */
-const HISTORY_CHAR_BUDGET = 120_000;
+/**
+ * Replaying an unbounded history eventually overflows the context window.
+ * Sized above EXTRACT_CHARS_TOTAL so a full upload never starves the
+ * conversation around it; roughly 50k tokens at four characters each.
+ */
+const HISTORY_CHAR_BUDGET = 260_000;
 
 type Incoming = {
   conversationId?: string;
@@ -258,21 +267,43 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   const thinkingMasker = createStreamMasker((chunk) => send({ type: "thinking", delta: chunk }));
   let awaitingPermission = false;
 
+  let alreadyShrunk = false;
+
   for (let turn = 0; turn < 12; turn++) {
-    const result = await streamCompletion({
-      model,
-      messages,
-      tools,
-      toolChoice: turn === 0 ? initialToolChoice : "auto",
-      onThinking: (d) => {
-        finalThinking += d;
-        thinkingMasker.push(d);
-      },
-      onContent: (d) => {
-        finalContent += d;
-        contentMasker.push(d);
-      },
-    });
+    const runTurn = () =>
+      streamCompletion({
+        model,
+        messages,
+        tools,
+        toolChoice: turn === 0 ? initialToolChoice : "auto",
+        onThinking: (d) => {
+          finalThinking += d;
+          thinkingMasker.push(d);
+        },
+        onContent: (d) => {
+          finalContent += d;
+          contentMasker.push(d);
+        },
+      });
+
+    const emittedBefore = finalContent.length + finalThinking.length;
+    let result: Awaited<ReturnType<typeof streamCompletion>>;
+    try {
+      result = await runTurn();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // A rejected request fails before anything streams, so retrying emits no
+      // duplicate text. Halving the history beats failing the whole turn when
+      // the attachment budget overshoots the model's context window.
+      const canRetry =
+        !alreadyShrunk &&
+        isContextOverflow(message) &&
+        finalContent.length + finalThinking.length === emittedBefore;
+      if (!canRetry) throw error;
+      alreadyShrunk = true;
+      capHistory(messages, Math.floor(HISTORY_CHAR_BUDGET / 2));
+      result = await runTurn();
+    }
 
     thinkingMs = Date.now() - thinkStart;
     // A pattern cannot span two separate completions, so it is safe to release

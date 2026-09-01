@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCompletionBody, forcesToolCall, providerErrorMessage } from "./llm-request.ts";
+import {
+  buildCompletionBody,
+  forcesToolCall,
+  isContextOverflow,
+  providerErrorMessage,
+} from "./llm-request.ts";
 import { toolChoiceFor } from "./canvas-data.ts";
 import type { ComposerTool } from "./types.ts";
 
@@ -59,4 +64,27 @@ test("provider failures read as a sentence, not a JSON blob", () => {
   assert.equal(providerErrorMessage(envelope, 400), "Thinking mode does not support this tool_choice");
   assert.equal(providerErrorMessage("upstream exploded", 500), "upstream exploded");
   assert.equal(providerErrorMessage("", 502), "Request failed (502)");
+});
+
+test("context-overflow wording is recognised across phrasings", () => {
+  const overflows = [
+    "This model's maximum context length is 65536 tokens, however you requested 70000",
+    "Input exceeds the context window",
+    "prompt is too long",
+    "Request exceeds 65536 tokens",
+    "token limit reached for this request",
+  ];
+  for (const message of overflows) {
+    assert.equal(isContextOverflow(message), true, `not matched: ${message}`);
+  }
+
+  // Must not swallow unrelated failures into the retry path.
+  for (const message of [
+    "Thinking mode does not support this tool_choice",
+    "Invalid API key",
+    "Rate limit exceeded",
+    "upstream connect error",
+  ]) {
+    assert.equal(isContextOverflow(message), false, `wrongly matched: ${message}`);
+  }
 });

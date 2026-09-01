@@ -30,7 +30,7 @@ const payload = attachmentsForChatRequest(attachments);
 const user = buildProviderUserText("analisis", attachments);
 const jsonBytes = Buffer.byteLength(JSON.stringify({ message: "analisis", attachments: payload }));
 if (payload.length !== 3) throw new Error("expected 3 attachments");
-if (jsonBytes > 160_000) throw new Error(`chat payload too large: ${jsonBytes}`);
+if (jsonBytes > EXTRACT_CHARS_TOTAL + 40_000) throw new Error(`chat payload too large: ${jsonBytes}`);
 if (!user.includes("[truncated]")) throw new Error("missing truncation mark");
 if (!user.includes("[File: paper-1.pdf]") || !user.includes("[File: paper-3.pdf]")) {
   throw new Error("missing file notes");

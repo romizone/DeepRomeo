@@ -54,3 +54,11 @@ export function providerErrorMessage(raw: string, status: number): string {
   const trimmed = raw.trim();
   return trimmed ? trimmed.slice(0, 300) : `Request failed (${status})`;
 }
+
+/** Providers word this differently; match the shapes they all share. */
+const CONTEXT_OVERFLOW_RE =
+  /context.{0,12}(length|window)|maximum context|too many tokens|token.{0,10}limit|prompt is too long|exceeds?.{0,20}tokens/i;
+
+export function isContextOverflow(message: string): boolean {
+  return CONTEXT_OVERFLOW_RE.test(message);
+}

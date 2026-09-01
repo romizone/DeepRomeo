@@ -5,8 +5,14 @@ export const VERCEL_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 export const LOCAL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
 /** Keep compressed image data URLs in chat JSON (under the 4.5MB platform cap). */
 export const IMAGE_DATA_URL_MAX_CHARS = 480_000;
-export const EXTRACT_CHARS_PER_FILE = 12_000;
-export const EXTRACT_CHARS_TOTAL = 36_000;
+/**
+ * How much extracted text reaches the model. Roughly four characters per
+ * token, so the totals below are about 15k tokens for one file and 37k across
+ * an upload. The previous 12k/36k cut a long document off well before its
+ * later sections.
+ */
+export const EXTRACT_CHARS_PER_FILE = 120_000;
+export const EXTRACT_CHARS_TOTAL = 200_000;
 export const UPLOAD_TIMEOUT_MS = 45_000;
 export const CHAT_STALL_MS = 90_000;
 export const PROVIDER_FETCH_TIMEOUT_MS = 180_000;
@@ -67,19 +73,27 @@ export function sanitizeAttachment(attachment: Attachment, perFileLimit = EXTRAC
   };
 }
 
+/** Headroom set aside per attachment for a note about a file that got dropped. */
+const OMISSION_NOTICE_CHARS = 120;
+
 export function sanitizeAttachments(attachments: Attachment[] | undefined): Attachment[] {
   if (!attachments?.length) return [];
   const out: Attachment[] = [];
+  // The omission note used to be appended without being charged to the budget,
+  // so the total could run past EXTRACT_CHARS_TOTAL by one note per file.
+  const textBudget = Math.max(
+    0,
+    EXTRACT_CHARS_TOTAL - OMISSION_NOTICE_CHARS * attachments.length,
+  );
   let used = 0;
   for (const raw of attachments) {
     const next = sanitizeAttachment(raw);
     if (next.kind === "file" && next.text) {
-      const remaining = EXTRACT_CHARS_TOTAL - used;
+      const remaining = textBudget - used;
       if (remaining <= 80) {
-        out.push({
-          ...next,
-          text: `[${next.name} omitted — attachment text budget exceeded]\n\n${TRUNCATION_MARK}`,
-        });
+        const notice = `[${next.name} omitted — attachment text budget exceeded]\n\n${TRUNCATION_MARK}`;
+        used += notice.length;
+        out.push({ ...next, text: notice });
         continue;
       }
       if (next.text.length > remaining) {
