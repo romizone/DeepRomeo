@@ -35,6 +35,7 @@ export function Composer({
   attachments,
   onToolsChange,
   onAttachments,
+  onVision,
   onSubmit,
   onStop,
 }: {
@@ -45,6 +46,7 @@ export function Composer({
   attachments: Attachment[];
   onToolsChange: (tools: ComposerTool[]) => void;
   onAttachments: (files: Attachment[]) => void;
+  onVision?: () => void;
   onSubmit: (text: string) => void;
   onStop: () => void;
 }) {
@@ -80,51 +82,65 @@ export function Composer({
     if (close) setMenu(false);
   };
 
+  const openFilePicker = () => {
+    try {
+      fileRef.current?.click();
+    } catch {
+      setUploadError("Tidak bisa membuka pemilih file.");
+    }
+  };
+
   const pickFiles = async (list: FileList | null) => {
     if (!list?.length) return;
-    const maxBytes = clientUploadMaxBytes(window.location.hostname);
+    onVision?.();
+    const maxBytes = clientUploadMaxBytes(typeof window !== "undefined" ? window.location.hostname : "");
     const next = [...attachments];
     setUploadError(null);
-    for (const file of Array.from(list)) {
-      if (file.size > maxBytes) {
-        setUploadError(tooLargeError(file.name, maxBytes));
-        continue;
-      }
-      setUploading(file.name);
-      const fd = new FormData();
-      fd.append("file", file);
-      const ac = new AbortController();
-      const timer = window.setTimeout(() => ac.abort(), UPLOAD_TIMEOUT_MS);
-      try {
-        const res = await fetch("/api/upload", { method: "POST", body: fd, signal: ac.signal });
-        let json: { attachment?: Attachment; error?: string } = {};
-        try {
-          json = (await res.json()) as { attachment?: Attachment; error?: string };
-        } catch {
-          json = {};
-        }
-        if (!res.ok || !json.attachment) {
-          setUploadError(
-            json.error ||
-              (res.status === 413
-                ? tooLargeError(file.name, maxBytes)
-                : `Gagal mengunggah ${file.name}`),
-          );
+    try {
+      for (const file of Array.from(list)) {
+        if (file.size > maxBytes) {
+          setUploadError(tooLargeError(file.name, maxBytes));
           continue;
         }
-        next.push(json.attachment);
-        onAttachments([...next]);
-      } catch (error) {
-        if ((error as Error).name === "AbortError") {
-          setUploadError(`Gagal mengekstrak ${file.name} (waktu habis). Coba file yang lebih kecil.`);
-        } else {
-          setUploadError(`Gagal mengunggah ${file.name}`);
+        setUploading(file.name);
+        const fd = new FormData();
+        fd.append("file", file);
+        const ac = new AbortController();
+        const timer = window.setTimeout(() => ac.abort(), UPLOAD_TIMEOUT_MS);
+        try {
+          const res = await fetch("/api/upload", { method: "POST", body: fd, signal: ac.signal });
+          let json: { attachment?: Attachment; error?: string } = {};
+          try {
+            json = (await res.json()) as { attachment?: Attachment; error?: string };
+          } catch {
+            json = {};
+          }
+          if (!res.ok || !json.attachment) {
+            setUploadError(
+              json.error ||
+                (res.status === 413
+                  ? tooLargeError(file.name, maxBytes)
+                  : `Gagal mengunggah ${file.name}`),
+            );
+            continue;
+          }
+          next.push(json.attachment);
+          onAttachments([...next]);
+        } catch (error) {
+          if ((error as Error).name === "AbortError") {
+            setUploadError(`Gagal mengekstrak ${file.name} (waktu habis). Coba file yang lebih kecil.`);
+          } else {
+            setUploadError(`Gagal mengunggah ${file.name}`);
+          }
+        } finally {
+          window.clearTimeout(timer);
         }
-      } finally {
-        window.clearTimeout(timer);
       }
+    } catch {
+      setUploadError("Gagal mengunggah file. Coba lagi.");
+    } finally {
+      setUploading(null);
     }
-    setUploading(null);
   };
 
   const mic = () => {
@@ -176,7 +192,7 @@ export function Composer({
               key={a.id}
               className="relative flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-1.5 pr-8 text-xs"
             >
-              {a.kind === "image" ? (
+              {a.kind === "image" && a.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={a.url} alt="" className="h-12 w-12 rounded-xl object-cover" />
               ) : (
@@ -233,6 +249,7 @@ export function Composer({
           className="block max-h-[200px] w-full bg-transparent px-4 pt-3.5 pb-1 text-[16px] leading-6 outline-none placeholder:text-[var(--text-3)]"
         />
         <div className="flex items-center justify-between px-2 pb-2 pt-1">
+          <div className="flex items-center gap-1">
           <div ref={menuRef} className="relative">
             <button
               type="button"
@@ -248,7 +265,7 @@ export function Composer({
                   type="button"
                   className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[14px] hover:bg-[var(--bg-hover)]"
                   onClick={() => {
-                    fileRef.current?.click();
+                    openFilePicker();
                     setMenu(false);
                   }}
                 >
@@ -303,6 +320,17 @@ export function Composer({
                 })}
               </div>
             )}
+          </div>
+          <button
+            type="button"
+            onClick={openFilePicker}
+            disabled={disabled || Boolean(uploading)}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+            aria-label="Upload file"
+            title="Upload file"
+          >
+            <Paperclip size={18} />
+          </button>
           </div>
           <div className="flex items-center gap-1.5">
             <button

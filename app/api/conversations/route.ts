@@ -2,18 +2,22 @@ import { deleteConversation, getConversation, listConversations, upsertConversat
 import type { Conversation } from "@/lib/types";
 
 export async function GET() {
-  const items = await listConversations();
-  return Response.json({
-    conversations: items.map((c) => ({
-      id: c.id,
-      title: c.title,
-      mode: c.mode,
-      model: c.model,
-      pinned: c.pinned,
-      updatedAt: c.updatedAt,
-      createdAt: c.createdAt,
-    })),
-  });
+  try {
+    const items = await listConversations();
+    return Response.json({
+      conversations: items.map((c) => ({
+        id: c.id,
+        title: c.title,
+        mode: c.mode,
+        model: c.model,
+        pinned: c.pinned,
+        updatedAt: c.updatedAt,
+        createdAt: c.createdAt,
+      })),
+    });
+  } catch {
+    return Response.json({ conversations: [] }, { status: 200 });
+  }
 }
 
 export async function POST(req: Request) {

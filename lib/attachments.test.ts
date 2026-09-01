@@ -35,8 +35,20 @@ test("three large PDF texts still fit in the chat message builder", () => {
   assert.ok(total <= EXTRACT_CHARS_TOTAL);
   for (const a of sanitized) {
     assert.ok(a.text?.includes(TRUNCATION_MARK));
-    assert.equal(a.url, "");
+  assert.equal(a.url, "");
   }
+
+  const kept = sanitizeAttachments([
+    {
+      id: "img-1",
+      name: "shot.png",
+      mime: "image/png",
+      size: 12_000,
+      url: "/api/files/abc.png",
+      kind: "image",
+    },
+  ]);
+  assert.equal(kept[0].url, "/api/files/abc.png");
 
   const payload = attachmentsForChatRequest(attachments);
   const json = JSON.stringify({ message: "analisis", attachments: payload });

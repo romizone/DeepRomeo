@@ -27,23 +27,28 @@ export function saveGeneratedFile(originalName: string, data: Buffer, mime: stri
 export function newCanvas(
   partial: Pick<CanvasState, "title" | "content" | "kind"> & Partial<CanvasState>,
 ): CanvasState {
+  const { language: languageIn, id: idIn, ...rest } = partial;
+  const language =
+    languageIn ||
+    (partial.kind === "spreadsheet"
+      ? "csv"
+      : partial.kind === "presentation"
+        ? "slides"
+        : partial.kind === "pdf"
+          ? "pdf"
+          : "markdown");
   return {
-    id: crypto.randomUUID(),
-    language:
-      partial.language ||
-      (partial.kind === "spreadsheet"
-        ? "csv"
-        : partial.kind === "presentation"
-          ? "slides"
-          : partial.kind === "pdf"
-            ? "pdf"
-            : "markdown"),
-    ...partial,
+    ...rest,
+    id: idIn || crypto.randomUUID(),
+    title: rest.title || "Canvas",
+    content: rest.content || "",
+    kind: rest.kind,
+    language,
   };
 }
 
 export function canvasKindFromLanguage(language: string): CanvasKind {
-  const lang = language.toLowerCase();
+  const lang = (language || "").toLowerCase();
   if (["markdown", "md", "document", "text"].includes(lang)) return "document";
   if (["slides", "presentation"].includes(lang)) return "presentation";
   if (["csv", "tsv", "spreadsheet", "sheet"].includes(lang)) return "spreadsheet";

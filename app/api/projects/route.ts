@@ -2,8 +2,12 @@ import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 
 export async function GET() {
-  const items = await getDb().select().from(schema.projects);
-  return Response.json({ projects: items });
+  try {
+    const items = await getDb().select().from(schema.projects);
+    return Response.json({ projects: items });
+  } catch {
+    return Response.json({ projects: [] }, { status: 200 });
+  }
 }
 
 export async function POST(req: Request) {

@@ -68,8 +68,10 @@ export function createPdfBuffer(title: string, body: string): Buffer {
   const left = 54;
   const top = 738;
   const lineH = 16;
-  const firstBody = 36;
-  const laterBody = 44;
+  const bottom = 54;
+  const titleGap = 28;
+  const firstBody = Math.floor((top - titleGap - bottom) / lineH);
+  const laterBody = Math.floor((top - bottom) / lineH);
 
   const pages: string[][] = [];
   let remaining = [...bodyLines];
@@ -95,22 +97,20 @@ export function createPdfBuffer(title: string, body: string): Buffer {
   const pageIds: number[] = [];
 
   for (let i = 0; i < pages.length; i++) {
-    const ops: string[] = ["BT"];
+    const ops: string[] = ["BT", `${lineH} TL`];
     let y = top;
     if (i === 0) {
       ops.push(`/F2 18 Tf`);
-      ops.push(`${left} ${y} Td`);
+      // Tm sets the text matrix absolutely; Td would offset from the previous line.
+      ops.push(`1 0 0 1 ${left} ${y} Tm`);
       ops.push(`(${pdfEscape(plainTitle)}) Tj`);
-      y -= 28;
-      ops.push(`/F1 11 Tf`);
-      ops.push(`${left} ${y} Td`);
-    } else {
-      ops.push(`/F1 11 Tf`);
-      ops.push(`${left} ${y} Td`);
+      y -= titleGap;
     }
+    ops.push(`/F1 11 Tf`);
+    ops.push(`1 0 0 1 ${left} ${y} Tm`);
     for (const line of pages[i]) {
       ops.push(`(${pdfEscape(line)}) Tj`);
-      ops.push(`0 -${lineH} Td`);
+      ops.push("T*");
     }
     ops.push("ET");
     const stream = ops.join("\n");

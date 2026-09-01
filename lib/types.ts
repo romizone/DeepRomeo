@@ -215,9 +215,9 @@ export const MODELS: {
   },
   {
     id: "vision",
-    name: "DeepRomeo Vision",
+    name: "DeepRomeo Vision Flash",
     tag: "Vision",
-    description: "Reads images, screenshots, and diagrams",
+    description: "Reads images, screenshots, PDFs, and diagrams",
   },
   {
     id: "pro",

@@ -2,13 +2,22 @@ import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 
 export async function GET() {
-  const items = await getDb().select().from(schema.skills);
-  return Response.json({
-    skills: items.map((s) => ({
-      ...s,
-      tools: JSON.parse(s.tools || "[]"),
-    })),
-  });
+  try {
+    const items = await getDb().select().from(schema.skills);
+    return Response.json({
+      skills: items.map((s) => {
+        let tools: unknown = [];
+        try {
+          tools = JSON.parse(s.tools || "[]");
+        } catch {
+          tools = [];
+        }
+        return { ...s, tools };
+      }),
+    });
+  } catch {
+    return Response.json({ skills: [] }, { status: 200 });
+  }
 }
 
 export async function POST(req: Request) {

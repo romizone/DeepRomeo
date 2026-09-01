@@ -18,8 +18,8 @@ export function GptsView({
     () =>
       skills.filter(
         (s) =>
-          s.name.toLowerCase().includes(q.toLowerCase()) ||
-          s.description.toLowerCase().includes(q.toLowerCase()),
+          s.name?.toLowerCase().includes(q.toLowerCase()) ||
+          s.description?.toLowerCase().includes(q.toLowerCase()),
       ),
     [skills, q],
   );

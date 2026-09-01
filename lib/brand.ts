@@ -1,7 +1,7 @@
 import "server-only";
 
 const REPLACEMENTS: [RegExp, string][] = [
-  [/deepseek-v4-flash-vision-exp/gi, "DeepRomeo Vision"],
+  [/deepseek-v4-flash-vision-exp/gi, "DeepRomeo Vision Flash"],
   [/deepseek-v4-flash/gi, "DeepRomeo Flash"],
   [/deepseek-v4-pro/gi, "DeepRomeo Pro"],
   [/deepseek[\w.-]*/gi, "DeepRomeo"],

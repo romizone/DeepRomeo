@@ -34,7 +34,10 @@ export async function POST(req: NextRequest) {
   try {
     form = await req.formData();
   } catch {
-    return Response.json({ error: tooLargeError("upload.pdf", maxBytes) }, { status: 413 });
+    return Response.json(
+      { error: `File terlalu besar atau unggahan gagal (maks. ${Math.floor(maxBytes / (1024 * 1024))} MB)` },
+      { status: 413 },
+    );
   }
 
   const file = form.get("file");
@@ -61,13 +64,14 @@ export async function POST(req: NextRequest) {
       "Gagal mengekstrak file (waktu habis). Coba file yang lebih kecil.",
     );
     const text = extracted.kind === "file" ? truncateExtractedText(extracted.text || "") : extracted.text;
+    const publicUrl = `/api/files/${id}${ext}`;
     return Response.json({
       attachment: {
         id,
         name: file.name,
-        mime: file.type,
+        mime: file.type || (extracted.kind === "image" ? "image/png" : "application/octet-stream"),
         size: file.size,
-        url: extracted.kind === "image" && "dataUrl" in extracted ? extracted.dataUrl : `/api/files/${id}${ext}`,
+        url: publicUrl,
         kind: extracted.kind,
         text,
       },

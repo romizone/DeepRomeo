@@ -18,7 +18,7 @@ export function CanvasPanel({
   const [running, setRunning] = useState(false);
   const [docMode, setDocMode] = useState<"edit" | "preview">("preview");
 
-  const isPy = canvas.language.toLowerCase().includes("py");
+  const isPy = (canvas.language || "").toLowerCase().includes("py");
 
   useEffect(() => {
     setOutput("");
@@ -158,7 +158,11 @@ function PresentationView({
   onChange: (c: CanvasState) => void;
 }) {
   const slides = canvas.slides?.length
-    ? canvas.slides
+    ? canvas.slides.map((s) => ({
+        ...s,
+        title: s.title || "Slide",
+        bullets: Array.isArray(s.bullets) ? s.bullets : [],
+      }))
     : [{ id: "s1", title: canvas.title || "Slide", bullets: [] }];
   const [index, setIndex] = useState(0);
 
@@ -228,15 +232,16 @@ function PresentationView({
       <div className="min-h-0 flex-1 overflow-auto px-3 pb-3 dr-scroll">
         <div className="aspect-video rounded-xl bg-white px-8 py-7 text-[#111] shadow-[0_8px_30px_rgba(0,0,0,.18)]">
           <input
-            value={slide.title}
-            onChange={(e) => updateSlide({ ...slide, title: e.target.value })}
+            value={slide?.title || ""}
+            onChange={(e) => updateSlide({ ...slide, id: slide?.id || "s1", title: e.target.value, bullets: slide?.bullets || [] })}
             className="w-full bg-transparent text-[26px] font-semibold tracking-[-0.03em] outline-none"
           />
           <textarea
-            value={slide.bullets.join("\n")}
+            value={(slide?.bullets || []).join("\n")}
             onChange={(e) =>
               updateSlide({
-                ...slide,
+                id: slide?.id || "s1",
+                title: slide?.title || "Slide",
                 bullets: e.target.value.split("\n"),
               })
             }
@@ -256,7 +261,13 @@ function SpreadsheetView({
   canvas: CanvasState;
   onChange: (c: CanvasState) => void;
 }) {
-  const sheet: SpreadsheetData = canvas.sheet || { headers: ["Column 1"], rows: [[""]] };
+  const headers = canvas.sheet?.headers?.length ? canvas.sheet.headers : ["Column 1"];
+  const sheet: SpreadsheetData = {
+    headers,
+    rows: (canvas.sheet?.rows?.length ? canvas.sheet.rows : [[""]]).map((row) =>
+      headers.map((_, i) => row?.[i] || ""),
+    ),
+  };
 
   const commit = (next: SpreadsheetData) => {
     const csv = [next.headers, ...next.rows]
@@ -369,6 +380,9 @@ function slidesHtml(title: string, slides: Slide[]) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;background:#111}.slide{box-sizing:border-box;min-height:100vh;padding:64px 72px;background:#fff;page-break-after:always}h2{font-size:42px;margin:0 0 24px}.num{color:#888;font-size:14px;margin-bottom:20px}ul{font-size:22px;line-height:1.5}</style></head><body>${cards}</body></html>`;
 }
 
-function esc(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function esc(value: string | undefined) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

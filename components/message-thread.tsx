@@ -53,7 +53,7 @@ function UserBubble({ message, onEdit }: { message: Message; onEdit: (c: string)
         {message.attachments && message.attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap justify-end gap-2">
             {message.attachments.map((a) =>
-              a.kind === "image" ? (
+              a.kind === "image" && a.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={a.id}

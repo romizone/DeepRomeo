@@ -49,7 +49,9 @@ export function truncateExtractedText(text: string, limit = EXTRACT_CHARS_PER_FI
 
 export function sanitizeAttachment(attachment: Attachment, perFileLimit = EXTRACT_CHARS_PER_FILE): Attachment {
   const isFile = attachment.kind === "file";
-  const url = isFile && attachment.url?.startsWith("data:") ? "" : attachment.url;
+  const rawUrl = attachment.url || "";
+  const url =
+    rawUrl.startsWith("data:") && (isFile || rawUrl.length > 80_000) ? "" : rawUrl;
   return {
     id: attachment.id,
     name: attachment.name,

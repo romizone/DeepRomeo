@@ -98,14 +98,18 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
   const scroller = useRef<HTMLDivElement>(null);
 
   const loadLists = useCallback(async () => {
-    const [c, p, s] = await Promise.all([
-      fetch("/api/conversations").then((r) => r.json()),
-      fetch("/api/projects").then((r) => r.json()),
-      fetch("/api/skills").then((r) => r.json()),
-    ]);
-    setRecents(c.conversations || []);
-    setProjects(p.projects || []);
-    setSkills(s.skills || []);
+    try {
+      const [c, p, s] = await Promise.all([
+        fetch("/api/conversations").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/projects").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/skills").then((r) => r.json()).catch(() => ({})),
+      ]);
+      setRecents(Array.isArray(c.conversations) ? c.conversations : []);
+      setProjects(Array.isArray(p.projects) ? p.projects : []);
+      setSkills(Array.isArray(s.skills) ? s.skills : []);
+    } catch {
+      /* keep last known lists so the shell still renders */
+    }
   }, []);
 
   useEffect(() => {
@@ -133,13 +137,16 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
     void fetch(`/api/conversations/${conversationId}`)
       .then((r) => r.json())
       .then((json) => {
-        if (!json.conversation) return;
+        if (!json?.conversation) return;
         const c = json.conversation as Conversation;
         setConv(c);
-        setMode(c.mode);
-        setModel(c.model);
+        setMode(c.mode || "chat");
+        setModel(c.model || "flash");
         setCanvasOpen(Boolean(c.canvas));
         setWorkOpen(c.mode === "work" || Boolean(c.plan || c.deliverable));
+      })
+      .catch(() => {
+        /* stay on empty conversation rather than a blank shell */
       });
   }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -570,6 +577,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
                           attachments={attachments}
                           onToolsChange={setTools}
                           onAttachments={setAttachments}
+                          onVision={() => setModel("vision")}
                           onSubmit={(t) => void send(t)}
                           onStop={() => abortRef.current?.abort()}
                         />
@@ -614,6 +622,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
                   attachments={attachments}
                   onToolsChange={setTools}
                   onAttachments={setAttachments}
+                  onVision={() => setModel("vision")}
                   onSubmit={(t) => void send(t)}
                   onStop={() => abortRef.current?.abort()}
                 />

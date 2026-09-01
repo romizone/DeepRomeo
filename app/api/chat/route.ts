@@ -11,6 +11,7 @@ import { getConversation, upsertConversation } from "@/lib/store";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { builtinToolDefs } from "@/lib/tools/defs";
 import { executeTool, getSettings, loadMemoryTexts, type ToolContext } from "@/lib/tools/execute";
+import { imageDataUrlFromAttachment } from "@/lib/tools/files";
 import { imageConfigured } from "@/lib/tools/image";
 import { listMcpTools } from "@/lib/tools/mcp";
 import { pluginTools } from "@/lib/tools/plugins";
@@ -173,9 +174,10 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     /* optional */
   }
 
+  const hasUploads = (body.attachments || []).length > 0;
   const hasImages = (body.attachments || []).some((a) => a.kind === "image");
-  const model = resolveProviderModel(hasImages ? "vision" : body.model, hasImages);
-  if (hasImages && conv.model !== "vision") {
+  const model = resolveProviderModel(hasUploads ? "vision" : body.model, hasImages);
+  if (hasUploads && conv.model !== "vision") {
     conv.model = "vision";
     send({ type: "model", model: "vision" });
   }
@@ -193,16 +195,18 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   const messages: ProviderMessage[] = [{ role: "system", content: system }];
   for (const m of conv.messages) {
     if (m.role === "user") {
-      const images = (m.attachments || []).filter((a) => a.kind === "image" && a.url.startsWith("data:"));
+      const images = (m.attachments || [])
+        .map((a) => imageDataUrlFromAttachment(a))
+        .filter((url): url is string => Boolean(url));
       const text = buildProviderUserText(m.content, m.attachments);
       if (images.length) {
         messages.push({
           role: "user",
           content: [
             { type: "text", text },
-            ...images.map((img) => ({
+            ...images.map((url) => ({
               type: "image_url" as const,
-              image_url: { url: img.url },
+              image_url: { url },
             })),
           ],
         });
