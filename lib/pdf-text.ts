@@ -47,9 +47,12 @@ function stringsFromPdfSource(source: string): string {
 
 async function inflateBytes(payload: Uint8Array): Promise<Uint8Array | null> {
   if (typeof DecompressionStream === "undefined") return null;
+  const copy = new Uint8Array(payload.byteLength);
+  copy.set(payload);
+  const part = copy.buffer as ArrayBuffer;
   for (const format of ["deflate", "deflate-raw"] as const) {
     try {
-      const stream = new Blob([payload]).stream().pipeThrough(new DecompressionStream(format));
+      const stream = new Blob([part]).stream().pipeThrough(new DecompressionStream(format));
       return new Uint8Array(await new Response(stream).arrayBuffer());
     } catch {
       /* try the other wrapper */
