@@ -13,32 +13,42 @@ import { SearchChats } from "./search-chats";
 import { SettingsModal } from "./settings-modal";
 import { Sidebar } from "./sidebar";
 import { WorkPanel } from "./work-panel";
+import {
+  attachmentsForChatRequest,
+  CHAT_STALL_MS,
+  EMPTY_ANALYSIS_MESSAGE,
+  tooLargeError,
+  VERCEL_UPLOAD_MAX_BYTES,
+} from "@/lib/attachments";
+import { placeholderCanvasForTools } from "@/lib/plugin-catalog";
 import type {
   Attachment,
   CanvasState,
   ComposerTool,
   Conversation,
+  GeneratedFile,
   Message,
   Mode,
   ModelId,
   PlanState,
   Project,
+  SearchSource,
   Skill,
 } from "@/lib/types";
 
 const CHAT_CHIPS: { label: string; prompt: string; tool?: ComposerTool }[] = [
   { label: "Create image", prompt: "Create an image of a serene mountain lake at dawn", tool: "image" },
-  { label: "Summarize text", prompt: "Summarize this: " },
+  { label: "Write a document", prompt: "Write a one-page brief about remote work best practices.", tool: "documents" },
   { label: "Help me write", prompt: "Help me write " },
-  { label: "Analyze data", prompt: "Analyze this data and show the key takeaways.", tool: "python" },
+  { label: "Analyze data", prompt: "Analyze this data and show the key takeaways.", tool: "spreadsheets" },
   { label: "Surprise me", prompt: "Surprise me with something fascinating." },
   { label: "Code", prompt: "Write a Python function that ", tool: "python" },
 ];
 
 const WORK_CHIPS: { label: string; prompt: string; tool?: ComposerTool }[] = [
-  { label: "Create a deck", prompt: "Create a slide deck about quarterly product strategy." },
-  { label: "Analyze a spreadsheet", prompt: "Analyze this spreadsheet and produce findings." },
-  { label: "Draft a report", prompt: "Draft a professional report on market expansion." },
+  { label: "Create a deck", prompt: "Create a slide deck about quarterly product strategy.", tool: "presentations" },
+  { label: "Analyze a spreadsheet", prompt: "Create a spreadsheet of quarterly revenue by region and highlight the key takeaways.", tool: "spreadsheets" },
+  { label: "Draft a report", prompt: "Draft a professional report on market expansion.", tool: "documents" },
   { label: "Build a project plan", prompt: "Build a project plan for launching a new app." },
 ];
 
@@ -158,21 +168,24 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
     if (!content && !attachments.length && !extra?.permissionId) return;
 
     const activeTools = extra?.extraTools ? [...new Set([...tools, ...extra.extraTools])] : tools;
+    const safeAttachments = attachments.length ? attachmentsForChatRequest(attachments) : [];
     const userMsg: Message | null = extra?.permissionId
       ? null
       : {
           id: crypto.randomUUID(),
           role: "user",
           content,
-          attachments: attachments.length ? attachments : undefined,
+          attachments: safeAttachments.length ? safeAttachments : undefined,
           createdAt: Date.now(),
         };
 
     const assistantId = crypto.randomUUID();
+    const draftCanvas = placeholderCanvasForTools(activeTools);
     setConv((prev) => ({
       ...prev,
       mode,
       model,
+      canvas: prev.canvas ?? (draftCanvas ? { ...draftCanvas, id: crypto.randomUUID() } : prev.canvas),
       messages: [
         ...prev.messages,
         ...(userMsg ? [userMsg] : []),
@@ -188,16 +201,29 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
     setStreaming(true);
     setStreamingId(assistantId);
     if (mode === "work") setWorkOpen(true);
-    if (activeTools.includes("canvas")) setCanvasOpen(true);
+    if (draftCanvas) setCanvasOpen(true);
 
     const ac = new AbortController();
     abortRef.current = ac;
     let localId = conv.id;
     let accContent = "";
     let accThink = "";
+    let stallTimedOut = false;
+    let sawResult = false;
     const images: string[] = [];
+    const files: GeneratedFile[] = [];
+    const sources: SearchSource[] = [];
+    let stallTimer: number | null = null;
+    const bumpStall = () => {
+      if (stallTimer) window.clearTimeout(stallTimer);
+      stallTimer = window.setTimeout(() => {
+        stallTimedOut = true;
+        ac.abort();
+      }, CHAT_STALL_MS);
+    };
 
     try {
+      bumpStall();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -208,7 +234,8 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           mode,
           model,
           tools: activeTools,
-          attachments: userMsg?.attachments || [],
+          attachments: safeAttachments,
+          canvas: conv.canvas ?? null,
           skillId: conv.skillId,
           projectId: conv.projectId,
           temporary: conv.temporary,
@@ -216,6 +243,16 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           permissionApproved: extra?.permissionApproved,
         }),
       });
+      if (!res.ok) {
+        let msg = res.status === 413 ? tooLargeError("upload.pdf", VERCEL_UPLOAD_MAX_BYTES) : "Something went wrong. Please try again.";
+        try {
+          const errJson = (await res.json()) as { error?: string; message?: string };
+          msg = errJson.error || errJson.message || msg;
+        } catch {
+          /* keep status fallback */
+        }
+        throw new Error(msg);
+      }
       if (!res.body) throw new Error("No stream");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -223,6 +260,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        bumpStall();
         buf += decoder.decode(value, { stream: true });
         const chunks = buf.split("\n\n");
         buf = chunks.pop() || "";
@@ -236,6 +274,9 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
             continue;
           }
           const type = ev.type as string;
+          if (type === "content" || type === "tool" || type === "permission" || type === "error") {
+            sawResult = true;
+          }
           if (type === "conversation") {
             localId = String(ev.id);
             setConv((p) => ({ ...p, id: localId }));
@@ -306,6 +347,26 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
               ),
             }));
           }
+          if (type === "sources") {
+            const next = (ev.sources as SearchSource[]) || [];
+            sources.splice(0, sources.length, ...next);
+            setConv((p) => ({
+              ...p,
+              messages: p.messages.map((m) =>
+                m.id === assistantId ? { ...m, sources: [...sources] } : m,
+              ),
+            }));
+          }
+          if (type === "file") {
+            const file = ev.file as GeneratedFile;
+            if (file?.url && !files.some((f) => f.url === file.url)) files.push(file);
+            setConv((p) => ({
+              ...p,
+              messages: p.messages.map((m) =>
+                m.id === assistantId ? { ...m, files: [...files] } : m,
+              ),
+            }));
+          }
           if (type === "permission") {
             setConv((p) => ({
               ...p,
@@ -333,18 +394,34 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           }
         }
       }
+      if (!accContent && !sawResult) {
+        accContent = EMPTY_ANALYSIS_MESSAGE;
+        setConv((p) => ({
+          ...p,
+          messages: p.messages.map((m) =>
+            m.id === assistantId ? { ...m, content: accContent } : m,
+          ),
+        }));
+      }
     } catch (e) {
-      if ((e as Error).name !== "AbortError") {
+      const aborted = (e as Error).name === "AbortError";
+      if (!aborted || stallTimedOut) {
         setConv((p) => ({
           ...p,
           messages: p.messages.map((m) =>
             m.id === assistantId
-              ? { ...m, content: m.content || "Something went wrong. Please try again." }
+              ? {
+                  ...m,
+                  content:
+                    m.content ||
+                    (stallTimedOut ? EMPTY_ANALYSIS_MESSAGE : (e as Error).message || "Something went wrong. Please try again."),
+                }
               : m,
           ),
         }));
       }
     } finally {
+      if (stallTimer) window.clearTimeout(stallTimer);
       setStreaming(false);
       setStreamingId(null);
       void loadLists();
@@ -508,8 +585,10 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
                             if (chip.tool) {
                               const extra = chip.tool;
                               setTools((t) => (t.includes(extra) ? t : [...t, extra]));
+                              void send(chip.prompt, { extraTools: [extra] });
+                            } else {
+                              void send(chip.prompt);
                             }
-                            void send(chip.prompt);
                           }}
                         >
                           {chip.label}
@@ -547,7 +626,16 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           <CanvasPanel
             canvas={conv.canvas}
             onClose={() => setCanvasOpen(false)}
-            onChange={(c) => setConv((p) => ({ ...p, canvas: c }))}
+            onChange={(c) => {
+              setConv((p) => ({ ...p, canvas: c }));
+              const id = conversationId || conv.id;
+              if (!id || conv.temporary || !conv.messages.length) return;
+              void fetch(`/api/conversations/${id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ canvas: c }),
+              });
+            }}
           />
         )}
         {workOpen && mode === "work" && (

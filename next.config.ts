@@ -10,6 +10,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  agentRules: false,
+  // Local/proxy buffer only — Vercel still hard-caps serverless bodies at ~4.5MB.
+  experimental: {
+    proxyClientMaxBodySize: "25mb",
+    serverActions: {
+      bodySizeLimit: "25mb",
+    },
+  },
 };
 
 export default nextConfig;

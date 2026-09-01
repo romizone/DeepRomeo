@@ -9,6 +9,16 @@ export type ToolName =
   | "open_canvas"
   | "update_canvas"
   | "generate_image"
+  | "create_document"
+  | "update_document"
+  | "create_presentation"
+  | "update_slide"
+  | "add_slide"
+  | "create_spreadsheet"
+  | "update_spreadsheet"
+  | "create_pdf"
+  | "read_pdf"
+  | "verify_pdf"
   | "create_plan"
   | "update_plan"
   | "request_permission"
@@ -21,7 +31,37 @@ export type ComposerTool =
   | "canvas"
   | "python"
   | "research"
-  | "image";
+  | "image"
+  | "documents"
+  | "presentations"
+  | "pdf"
+  | "spreadsheets";
+
+export type CanvasKind = "document" | "code" | "presentation" | "spreadsheet" | "pdf";
+
+export interface Slide {
+  id: string;
+  title: string;
+  bullets: string[];
+  notes?: string;
+}
+
+export interface SpreadsheetData {
+  headers: string[];
+  rows: string[][];
+}
+
+export interface SearchSource {
+  title: string;
+  url: string;
+  snippet?: string;
+}
+
+export interface GeneratedFile {
+  name: string;
+  url: string;
+  mime: string;
+}
 
 export interface Attachment {
   id: string;
@@ -46,7 +86,11 @@ export interface CanvasState {
   title: string;
   language: string;
   content: string;
-  kind: "document" | "code";
+  kind: CanvasKind;
+  slides?: Slide[];
+  sheet?: SpreadsheetData;
+  fileUrl?: string;
+  fileName?: string;
 }
 
 export interface PlanStep {
@@ -76,6 +120,8 @@ export interface Message {
   thinkingMs?: number;
   toolCalls?: ToolCallUI[];
   images?: string[];
+  files?: GeneratedFile[];
+  sources?: SearchSource[];
   attachments?: Attachment[];
   canvas?: CanvasState;
   plan?: PlanState;

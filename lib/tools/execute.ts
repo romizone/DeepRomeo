@@ -5,7 +5,19 @@ import { runPython } from "./python";
 import { generateImage } from "./image";
 import { callMcpTool } from "./mcp";
 import { runPlugin } from "./plugins";
-import type { CanvasState, PlanState } from "../types";
+import {
+  asRows,
+  asStringList,
+  canvasKindFromLanguage,
+  newCanvas,
+  normalizeSheet,
+  normalizeSlides,
+  saveGeneratedFile,
+  sheetToCsv,
+  slidesToMarkdown,
+} from "./artifacts";
+import { createPdfBuffer, verifyPdfText } from "./pdf";
+import type { CanvasState, GeneratedFile, PlanState, SearchSource, Slide } from "../types";
 
 export interface ToolContext {
   canvas: CanvasState | null;
@@ -13,6 +25,8 @@ export interface ToolContext {
   deliverable: { title: string; html?: string; markdown?: string } | null;
   permission: { id: string; action: string; detail: string } | null;
   images: string[];
+  sources: SearchSource[];
+  files: GeneratedFile[];
 }
 
 export async function executeTool(
@@ -29,7 +43,16 @@ export async function executeTool(
 
   if (name === "web_search") {
     const results = await webSearch(String(args.query || ""));
-    return { content: JSON.stringify({ results }), ctx };
+    for (const result of results) {
+      if (!ctx.sources.some((s) => s.url === result.url)) ctx.sources.push(result);
+    }
+    return {
+      content: JSON.stringify({
+        results,
+        cite_as: results.map((r) => `[${r.title}](${r.url})`),
+      }),
+      ctx,
+    };
   }
   if (name === "deep_research") {
     const pack = await deepResearch(
@@ -51,18 +74,14 @@ export async function executeTool(
     return { content: JSON.stringify(img), ctx };
   }
   if (name === "open_canvas") {
-    ctx.canvas = {
-      id: crypto.randomUUID(),
+    const language = String(args.language || "markdown");
+    ctx.canvas = newCanvas({
       title: String(args.title || "Canvas"),
-      language: String(args.language || "markdown"),
+      language,
       content: String(args.content || ""),
-      kind: ["markdown", "md", "document", "text"].includes(
-        String(args.language || "markdown").toLowerCase(),
-      )
-        ? "document"
-        : "code",
-    };
-    return { content: "Canvas opened.", ctx };
+      kind: canvasKindFromLanguage(language),
+    });
+    return { content: JSON.stringify({ ok: true, title: ctx.canvas.title, kind: ctx.canvas.kind }), ctx };
   }
   if (name === "update_canvas") {
     if (ctx.canvas) {
@@ -73,6 +92,185 @@ export async function executeTool(
       };
     }
     return { content: "Canvas updated.", ctx };
+  }
+  if (name === "create_document") {
+    ctx.canvas = newCanvas({
+      title: String(args.title || "Document"),
+      content: String(args.content || ""),
+      kind: "document",
+      language: "markdown",
+    });
+    return { content: JSON.stringify({ ok: true, title: ctx.canvas.title, kind: "document" }), ctx };
+  }
+  if (name === "update_document") {
+    if (ctx.canvas?.kind === "document" || ctx.canvas?.kind === "code") {
+      ctx.canvas = {
+        ...ctx.canvas,
+        kind: "document",
+        language: "markdown",
+        content: String(args.content || ctx.canvas.content),
+        title: String(args.title || ctx.canvas.title),
+      };
+    } else {
+      ctx.canvas = newCanvas({
+        title: String(args.title || "Document"),
+        content: String(args.content || ""),
+        kind: "document",
+        language: "markdown",
+      });
+    }
+    return { content: JSON.stringify({ ok: true, title: ctx.canvas.title, kind: "document" }), ctx };
+  }
+  if (name === "create_presentation") {
+    const slides = normalizeSlides(args.slides);
+    const title = String(args.title || "Presentation");
+    ctx.canvas = newCanvas({
+      title,
+      content: slidesToMarkdown(title, slides),
+      kind: "presentation",
+      language: "slides",
+      slides,
+    });
+    return {
+      content: JSON.stringify({ ok: true, title, slides: slides.length, kind: "presentation" }),
+      ctx,
+    };
+  }
+  if (name === "update_slide") {
+    if (!ctx.canvas?.slides?.length) {
+      return { content: JSON.stringify({ ok: false, error: "No presentation is open." }), ctx };
+    }
+    const index = Number(args.index);
+    if (!Number.isInteger(index) || index < 0 || index >= ctx.canvas.slides.length) {
+      return { content: JSON.stringify({ ok: false, error: "Slide index is out of range." }), ctx };
+    }
+    const slides = ctx.canvas.slides.map((slide, i) =>
+      i === index
+        ? {
+            ...slide,
+            title: args.title != null ? String(args.title) : slide.title,
+            bullets: args.bullets != null ? asStringList(args.bullets) : slide.bullets,
+            notes: args.notes != null ? String(args.notes) : slide.notes,
+          }
+        : slide,
+    );
+    ctx.canvas = {
+      ...ctx.canvas,
+      slides,
+      content: slidesToMarkdown(ctx.canvas.title, slides),
+    };
+    return { content: JSON.stringify({ ok: true, index, title: slides[index].title }), ctx };
+  }
+  if (name === "add_slide") {
+    const next: Slide = {
+      id: crypto.randomUUID(),
+      title: String(args.title || "New slide"),
+      bullets: asStringList(args.bullets),
+      notes: args.notes ? String(args.notes) : undefined,
+    };
+    const slides = [...(ctx.canvas?.slides || []), next];
+    const title = ctx.canvas?.title || String(args.title || "Presentation");
+    ctx.canvas = newCanvas({
+      ...(ctx.canvas || {}),
+      id: ctx.canvas?.id || crypto.randomUUID(),
+      title,
+      content: slidesToMarkdown(title, slides),
+      kind: "presentation",
+      language: "slides",
+      slides,
+    });
+    return { content: JSON.stringify({ ok: true, slides: slides.length, title: next.title }), ctx };
+  }
+  if (name === "create_spreadsheet") {
+    const sheet = normalizeSheet(args.headers, args.rows);
+    const title = String(args.title || "Spreadsheet");
+    ctx.canvas = newCanvas({
+      title,
+      content: sheetToCsv(sheet),
+      kind: "spreadsheet",
+      language: "csv",
+      sheet,
+    });
+    return {
+      content: JSON.stringify({
+        ok: true,
+        title,
+        columns: sheet.headers.length,
+        rows: sheet.rows.length,
+      }),
+      ctx,
+    };
+  }
+  if (name === "update_spreadsheet") {
+    const current = ctx.canvas?.sheet || normalizeSheet(["Column 1"], [[""]]);
+    let headers = args.headers != null ? asStringList(args.headers) : current.headers;
+    let rows = args.rows != null ? asRows(args.rows) : current.rows;
+    if (Array.isArray(args.append_rows)) rows = [...rows, ...asRows(args.append_rows)];
+    let sheet = normalizeSheet(headers, rows);
+    const cell = args.cell as { row?: number; col?: number; value?: unknown } | undefined;
+    if (cell && Number.isInteger(cell.row) && Number.isInteger(cell.col)) {
+      const row = Number(cell.row);
+      const col = Number(cell.col);
+      const nextRows = sheet.rows.map((r) => [...r]);
+      while (nextRows.length <= row) nextRows.push(Array.from({ length: sheet.headers.length }, () => ""));
+      const width = Math.max(sheet.headers.length, col + 1);
+      headers = Array.from({ length: width }, (_, i) => sheet.headers[i] || `Column ${i + 1}`);
+      const padded = nextRows.map((r) => Array.from({ length: width }, (_, i) => r[i] || ""));
+      padded[row][col] = String(cell.value ?? "");
+      sheet = { headers, rows: padded };
+    }
+    const title = String(args.title || ctx.canvas?.title || "Spreadsheet");
+    ctx.canvas = newCanvas({
+      ...(ctx.canvas || {}),
+      id: ctx.canvas?.id || crypto.randomUUID(),
+      title,
+      content: sheetToCsv(sheet),
+      kind: "spreadsheet",
+      language: "csv",
+      sheet,
+    });
+    return {
+      content: JSON.stringify({ ok: true, columns: sheet.headers.length, rows: sheet.rows.length }),
+      ctx,
+    };
+  }
+  if (name === "create_pdf") {
+    const title = String(args.title || "Document");
+    const content = String(args.content || "");
+    const buf = createPdfBuffer(title, content);
+    const file = saveGeneratedFile(`${title.replace(/[^a-zA-Z0-9._-]+/g, "-") || "document"}.pdf`, buf, "application/pdf");
+    ctx.files = [...ctx.files, file];
+    ctx.canvas = newCanvas({
+      title,
+      content,
+      kind: "pdf",
+      language: "pdf",
+      fileUrl: file.url,
+      fileName: file.name,
+    });
+    const report = verifyPdfText(content, { filename: file.name });
+    return {
+      content: JSON.stringify({ ok: true, title, url: file.url, filename: file.name, verify: report }),
+      ctx,
+    };
+  }
+  if (name === "read_pdf") {
+    const text = String(args.text || "");
+    const title = String(args.title || args.filename || "PDF");
+    ctx.canvas = newCanvas({
+      title,
+      content: text,
+      kind: "document",
+      language: "markdown",
+    });
+    return { content: JSON.stringify({ ok: true, title, chars: text.length }), ctx };
+  }
+  if (name === "verify_pdf") {
+    const report = verifyPdfText(String(args.text || ""), {
+      filename: args.filename ? String(args.filename) : undefined,
+      pages: typeof args.pages === "number" ? args.pages : undefined,
+    });
+    return { content: JSON.stringify(report), ctx };
   }
   if (name === "create_plan") {
     const steps = Array.isArray(args.steps) ? args.steps : [];

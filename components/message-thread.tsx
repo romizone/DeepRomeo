@@ -3,6 +3,7 @@
 import {
   Check,
   Copy,
+  FileText,
   Pencil,
   Share,
   ThumbsDown,
@@ -131,6 +132,41 @@ function AssistantBlock({
             className="mb-3 max-w-full rounded-2xl"
           />
         ))}
+        {message.files && message.files.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {message.files.map((f) => (
+              <a
+                key={f.url}
+                href={f.url}
+                download={f.name}
+                className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-[13px] hover:bg-[var(--bg-hover)]"
+              >
+                <FileText size={14} />
+                <span className="max-w-[200px] truncate">{f.name}</span>
+              </a>
+            ))}
+          </div>
+        )}
+        {message.sources && message.sources.length > 0 && (
+          <div className="mb-3">
+            <div className="mb-1.5 text-[12px] text-[var(--text-3)]">Sources</div>
+            <div className="flex flex-wrap gap-1.5">
+              {message.sources.map((s, i) => (
+                <a
+                  key={s.url}
+                  href={s.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 py-1 text-[12px] text-[var(--text-2)] hover:bg-[var(--bg-hover)]"
+                  title={s.snippet || s.url}
+                >
+                  <span className="text-[var(--text-3)]">{i + 1}</span>
+                  <span className="truncate">{s.title}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
         {message.content ? (
           <div className={streaming ? "caret-blink" : ""}>
             <Markdown content={message.content} />

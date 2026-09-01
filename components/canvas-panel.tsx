@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Download, Play, X } from "lucide-react";
-import type { CanvasState } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight, Download, Play, Plus, Trash2, X } from "lucide-react";
+import type { CanvasState, Slide, SpreadsheetData } from "@/lib/types";
+import { Markdown } from "./markdown";
 
 export function CanvasPanel({
   canvas,
@@ -15,9 +16,14 @@ export function CanvasPanel({
 }) {
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
-  const pyodideRef = useRef<unknown>(null);
+  const [docMode, setDocMode] = useState<"edit" | "preview">("preview");
 
   const isPy = canvas.language.toLowerCase().includes("py");
+
+  useEffect(() => {
+    setOutput("");
+    if (canvas.kind === "document") setDocMode("preview");
+  }, [canvas.id, canvas.kind]);
 
   const run = async () => {
     if (!isPy) return;
@@ -38,33 +44,65 @@ export function CanvasPanel({
     }
   };
 
-  void pyodideRef;
-
-  useEffect(() => {
-    setOutput("");
-  }, [canvas.id]);
-
   const download = () => {
-    const ext =
-      canvas.kind === "document"
-        ? "md"
-        : canvas.language.replace(/[^a-z0-9]/gi, "") || "txt";
-    const blob = new Blob([canvas.content], { type: "text/plain" });
+    if (canvas.kind === "pdf" && canvas.fileUrl) {
+      const a = document.createElement("a");
+      a.href = canvas.fileUrl;
+      a.download = canvas.fileName || `${canvas.title}.pdf`;
+      a.click();
+      return;
+    }
+    let filename = `${canvas.title}.txt`;
+    let type = "text/plain";
+    let body = canvas.content;
+    if (canvas.kind === "document") {
+      filename = `${canvas.title}.md`;
+    } else if (canvas.kind === "spreadsheet") {
+      filename = `${canvas.title}.csv`;
+      type = "text/csv";
+      body = canvas.content;
+    } else if (canvas.kind === "presentation") {
+      filename = `${canvas.title}.html`;
+      type = "text/html";
+      body = slidesHtml(canvas.title, canvas.slides || []);
+    } else {
+      const ext = canvas.language.replace(/[^a-z0-9]/gi, "") || "txt";
+      filename = `${canvas.title}.${ext}`;
+    }
+    const blob = new Blob([body], { type });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${canvas.title}.${ext}`;
+    a.download = filename;
     a.click();
   };
 
   return (
     <section className="flex h-full min-w-[360px] max-w-[52%] flex-1 flex-col border-l border-[var(--border)] bg-[var(--bg)]">
-      <header className="flex h-12 items-center justify-between border-b border-[var(--border)] px-3">
+      <header className="flex h-12 items-center justify-between gap-2 border-b border-[var(--border)] px-3">
         <input
           value={canvas.title}
           onChange={(e) => onChange({ ...canvas, title: e.target.value })}
-          className="bg-transparent text-[14px] font-medium outline-none"
+          className="min-w-0 flex-1 bg-transparent text-[14px] font-medium outline-none"
         />
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
+          {canvas.kind === "document" && (
+            <div className="mr-1 flex rounded-full border border-[var(--border)] p-0.5 text-[11px]">
+              <button
+                type="button"
+                className={`rounded-full px-2 py-0.5 ${docMode === "edit" ? "bg-[var(--bg-hover)]" : ""}`}
+                onClick={() => setDocMode("edit")}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className={`rounded-full px-2 py-0.5 ${docMode === "preview" ? "bg-[var(--bg-hover)]" : ""}`}
+                onClick={() => setDocMode("preview")}
+              >
+                Preview
+              </button>
+            </div>
+          )}
           {isPy && (
             <button
               type="button"
@@ -83,12 +121,26 @@ export function CanvasPanel({
           </button>
         </div>
       </header>
-      <textarea
-        value={canvas.content}
-        onChange={(e) => onChange({ ...canvas, content: e.target.value })}
-        className="min-h-0 flex-1 bg-transparent p-4 font-[var(--dr-mono)] text-[13.5px] leading-6 outline-none dr-scroll"
-        spellCheck={canvas.kind === "document"}
-      />
+
+      {canvas.kind === "presentation" ? (
+        <PresentationView canvas={canvas} onChange={onChange} />
+      ) : canvas.kind === "spreadsheet" ? (
+        <SpreadsheetView canvas={canvas} onChange={onChange} />
+      ) : canvas.kind === "pdf" ? (
+        <PdfView canvas={canvas} />
+      ) : canvas.kind === "document" && docMode === "preview" ? (
+        <div className="min-h-0 flex-1 overflow-auto p-5 dr-scroll">
+          <Markdown content={canvas.content || "_Empty document_"} />
+        </div>
+      ) : (
+        <textarea
+          value={canvas.content}
+          onChange={(e) => onChange({ ...canvas, content: e.target.value })}
+          className="min-h-0 flex-1 bg-transparent p-4 font-[var(--dr-mono)] text-[13.5px] leading-6 outline-none dr-scroll"
+          spellCheck={canvas.kind === "document"}
+        />
+      )}
+
       {output && (
         <pre className="max-h-40 overflow-auto border-t border-[var(--border)] bg-[var(--code-bg)] p-3 text-[12px] dr-scroll">
           {output}
@@ -96,4 +148,227 @@ export function CanvasPanel({
       )}
     </section>
   );
+}
+
+function PresentationView({
+  canvas,
+  onChange,
+}: {
+  canvas: CanvasState;
+  onChange: (c: CanvasState) => void;
+}) {
+  const slides = canvas.slides?.length
+    ? canvas.slides
+    : [{ id: "s1", title: canvas.title || "Slide", bullets: [] }];
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    setIndex(0);
+  }, [canvas.id]);
+  const safeIndex = Math.min(index, slides.length - 1);
+  const slide = slides[safeIndex];
+
+  const updateSlide = (next: Slide) => {
+    const slidesNext = slides.map((s, i) => (i === safeIndex ? next : s));
+    onChange({ ...canvas, slides: slidesNext });
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between px-3 py-2 text-[12px] text-[var(--text-2)]">
+        <button
+          type="button"
+          className="rounded-lg p-1 hover:bg-[var(--bg-hover)] disabled:opacity-40"
+          disabled={safeIndex <= 0}
+          onClick={() => setIndex((i) => Math.max(0, i - 1))}
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span>
+          Slide {safeIndex + 1} / {slides.length}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="rounded-lg p-1 hover:bg-[var(--bg-hover)]"
+            onClick={() => {
+              const next = {
+                id: crypto.randomUUID(),
+                title: "New slide",
+                bullets: ["Point"],
+              };
+              onChange({ ...canvas, slides: [...slides, next] });
+              setIndex(slides.length);
+            }}
+          >
+            <Plus size={16} />
+          </button>
+          <button
+            type="button"
+            className="rounded-lg p-1 hover:bg-[var(--bg-hover)] disabled:opacity-40"
+            disabled={slides.length <= 1}
+            onClick={() => {
+              const next = slides.filter((_, i) => i !== safeIndex);
+              onChange({ ...canvas, slides: next });
+              setIndex((i) => Math.max(0, i - 1));
+            }}
+          >
+            <Trash2 size={14} />
+          </button>
+          <button
+            type="button"
+            className="rounded-lg p-1 hover:bg-[var(--bg-hover)] disabled:opacity-40"
+            disabled={safeIndex >= slides.length - 1}
+            onClick={() => setIndex((i) => Math.min(slides.length - 1, i + 1))}
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto px-3 pb-3 dr-scroll">
+        <div className="aspect-video rounded-xl bg-white px-8 py-7 text-[#111] shadow-[0_8px_30px_rgba(0,0,0,.18)]">
+          <input
+            value={slide.title}
+            onChange={(e) => updateSlide({ ...slide, title: e.target.value })}
+            className="w-full bg-transparent text-[26px] font-semibold tracking-[-0.03em] outline-none"
+          />
+          <textarea
+            value={slide.bullets.join("\n")}
+            onChange={(e) =>
+              updateSlide({
+                ...slide,
+                bullets: e.target.value.split("\n"),
+              })
+            }
+            className="mt-4 h-[calc(100%-64px)] w-full resize-none bg-transparent text-[16px] leading-7 outline-none"
+            placeholder={"Bullet one\nBullet two"}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SpreadsheetView({
+  canvas,
+  onChange,
+}: {
+  canvas: CanvasState;
+  onChange: (c: CanvasState) => void;
+}) {
+  const sheet: SpreadsheetData = canvas.sheet || { headers: ["Column 1"], rows: [[""]] };
+
+  const commit = (next: SpreadsheetData) => {
+    const csv = [next.headers, ...next.rows]
+      .map((row) => row.map((cell) => (/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell)).join(","))
+      .join("\n");
+    onChange({ ...canvas, sheet: next, content: csv + "\n" });
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-3 dr-scroll">
+      <table className="min-w-full border-collapse text-[13px]">
+        <thead>
+          <tr>
+            <th className="w-8 border border-[var(--border)] bg-[var(--bg-elev)] px-1 text-[11px] text-[var(--text-3)]" />
+            {sheet.headers.map((h, i) => (
+              <th key={i} className="border border-[var(--border)] bg-[var(--bg-elev)] p-0">
+                <input
+                  value={h}
+                  onChange={(e) => {
+                    const headers = sheet.headers.map((x, idx) => (idx === i ? e.target.value : x));
+                    commit({ ...sheet, headers });
+                  }}
+                  className="w-full min-w-[88px] bg-transparent px-2 py-1.5 font-semibold outline-none"
+                />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sheet.rows.map((row, r) => (
+            <tr key={r}>
+              <td className="border border-[var(--border)] bg-[var(--bg-elev)] px-1 text-center text-[11px] text-[var(--text-3)]">
+                {r + 1}
+              </td>
+              {sheet.headers.map((_, c) => (
+                <td key={c} className="border border-[var(--border)] p-0">
+                  <input
+                    value={row[c] || ""}
+                    onChange={(e) => {
+                      const rows = sheet.rows.map((line, idx) =>
+                        idx === r ? line.map((cell, ci) => (ci === c ? e.target.value : cell)) : line,
+                      );
+                      commit({ ...sheet, rows });
+                    }}
+                    className="w-full min-w-[88px] bg-transparent px-2 py-1.5 outline-none"
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-2 flex gap-2">
+        <button
+          type="button"
+          className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[12px] hover:bg-[var(--bg-hover)]"
+          onClick={() =>
+            commit({
+              ...sheet,
+              rows: [...sheet.rows, sheet.headers.map(() => "")],
+            })
+          }
+        >
+          Add row
+        </button>
+        <button
+          type="button"
+          className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[12px] hover:bg-[var(--bg-hover)]"
+          onClick={() =>
+            commit({
+              headers: [...sheet.headers, `Column ${sheet.headers.length + 1}`],
+              rows: sheet.rows.map((row) => [...row, ""]),
+            })
+          }
+        >
+          Add column
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PdfView({ canvas }: { canvas: CanvasState }) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {canvas.fileUrl ? (
+        <iframe title={canvas.title} src={canvas.fileUrl} className="min-h-0 flex-1 bg-white" />
+      ) : (
+        <div className="p-4 text-[13px] text-[var(--text-3)]">No PDF file yet.</div>
+      )}
+      {canvas.content && (
+        <details className="border-t border-[var(--border)] px-3 py-2 text-[12px] text-[var(--text-2)]">
+          <summary className="cursor-pointer">Source text</summary>
+          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-[var(--dr-mono)] dr-scroll">
+            {canvas.content}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function slidesHtml(title: string, slides: Slide[]) {
+  const cards = slides
+    .map(
+      (slide, i) =>
+        `<section class="slide"><div class="num">${i + 1} / ${slides.length}</div><h2>${esc(slide.title)}</h2><ul>${slide.bullets.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></section>`,
+    )
+    .join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;background:#111}.slide{box-sizing:border-box;min-height:100vh;padding:64px 72px;background:#fff;page-break-after:always}h2{font-size:42px;margin:0 0 24px}.num{color:#888;font-size:14px;margin-bottom:20px}ul{font-size:22px;line-height:1.5}</style></head><body>${cards}</body></html>`;
+}
+
+function esc(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { PLUGIN_CATALOG } from "@/lib/plugin-catalog";
 import type { AppSettings, McpServer, MemoryItem, Plugin, Skill } from "@/lib/types";
+import { PluginIcon } from "./plugin-icons";
 
 type Tab = "general" | "personalization" | "connectors" | "plugins" | "builder";
 
@@ -260,6 +262,20 @@ function PluginsTab({
   );
   return (
     <div className="space-y-4">
+      <p className="text-[13px] text-[var(--text-2)]">
+        Built-in plugins appear in the composer + menu. Custom plugins add extra tools.
+      </p>
+      <div className="space-y-1">
+        {PLUGIN_CATALOG.map((item) => (
+          <div key={item.id} className="flex items-center gap-3 rounded-xl border border-[var(--border)] px-3 py-2">
+            <PluginIcon name={item.icon} size={20} />
+            <div>
+              <div className="text-[13px] font-semibold">{item.title}</div>
+              <div className="text-[12px] text-[var(--text-3)]">{item.description}</div>
+            </div>
+          </div>
+        ))}
+      </div>
       {plugins.map((p) => (
         <div key={p.id} className="rounded-xl border border-[var(--border)] px-3 py-2 text-[13px]">
           <div className="font-medium">{p.name}</div>

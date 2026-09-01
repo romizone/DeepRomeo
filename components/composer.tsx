@@ -4,29 +4,27 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   BookOpen,
+  Check,
   Code2,
-  Globe,
-  ImageIcon,
   Mic,
   Paperclip,
   Plus,
   Square,
   X,
 } from "lucide-react";
+import {
+  clientUploadMaxBytes,
+  tooLargeError,
+  UPLOAD_TIMEOUT_MS,
+} from "@/lib/attachments";
+import { PLUGIN_CATALOG, composerToolLabel } from "@/lib/plugin-catalog";
 import type { Attachment, ComposerTool, Mode } from "@/lib/types";
+import { PluginIcon } from "./plugin-icons";
 
-const MENU: {
-  id: ComposerTool | "files";
-  label: string;
-  icon: typeof Plus;
-  desc?: string;
-}[] = [
-  { id: "files", label: "Add photos & files", icon: Paperclip },
-  { id: "image", label: "Create image", icon: ImageIcon },
-  { id: "research", label: "Deep research", icon: BookOpen },
-  { id: "search", label: "Search", icon: Globe },
-  { id: "canvas", label: "Canvas", icon: BookOpen },
-  { id: "python", label: "Python", icon: Code2 },
+const MORE: { id: ComposerTool; label: string; desc: string; icon: typeof Plus }[] = [
+  { id: "research", label: "Deep research", desc: "Multi-source brief", icon: BookOpen },
+  { id: "canvas", label: "Canvas", desc: "Write or code on the side", icon: BookOpen },
+  { id: "python", label: "Python", desc: "Calculate and analyze", icon: Code2 },
 ];
 
 export function Composer({
@@ -53,6 +51,8 @@ export function Composer({
   const [text, setText] = useState("");
   const [menu, setMenu] = useState(false);
   const [listening, setListening] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -73,24 +73,58 @@ export function Composer({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const canSend = text.trim().length > 0 || attachments.length > 0;
+  const canSend = !uploading && (text.trim().length > 0 || attachments.length > 0);
 
-  const toggleTool = (id: ComposerTool) => {
+  const toggleTool = (id: ComposerTool, close = false) => {
     onToolsChange(tools.includes(id) ? tools.filter((t) => t !== id) : [...tools, id]);
-    setMenu(false);
+    if (close) setMenu(false);
   };
 
   const pickFiles = async (list: FileList | null) => {
     if (!list?.length) return;
+    const maxBytes = clientUploadMaxBytes(window.location.hostname);
     const next = [...attachments];
+    setUploadError(null);
     for (const file of Array.from(list)) {
+      if (file.size > maxBytes) {
+        setUploadError(tooLargeError(file.name, maxBytes));
+        continue;
+      }
+      setUploading(file.name);
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const json = (await res.json()) as { attachment?: Attachment };
-      if (json.attachment) next.push(json.attachment);
+      const ac = new AbortController();
+      const timer = window.setTimeout(() => ac.abort(), UPLOAD_TIMEOUT_MS);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: fd, signal: ac.signal });
+        let json: { attachment?: Attachment; error?: string } = {};
+        try {
+          json = (await res.json()) as { attachment?: Attachment; error?: string };
+        } catch {
+          json = {};
+        }
+        if (!res.ok || !json.attachment) {
+          setUploadError(
+            json.error ||
+              (res.status === 413
+                ? tooLargeError(file.name, maxBytes)
+                : `Gagal mengunggah ${file.name}`),
+          );
+          continue;
+        }
+        next.push(json.attachment);
+        onAttachments([...next]);
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          setUploadError(`Gagal mengekstrak ${file.name} (waktu habis). Coba file yang lebih kecil.`);
+        } else {
+          setUploadError(`Gagal mengunggah ${file.name}`);
+        }
+      } finally {
+        window.clearTimeout(timer);
+      }
     }
-    onAttachments(next);
+    setUploading(null);
   };
 
   const mic = () => {
@@ -124,6 +158,17 @@ export function Composer({
 
   return (
     <div className="mx-auto w-full max-w-[768px] px-3 pb-3 sm:px-4">
+      {uploadError && (
+        <div className="mb-2 flex items-start justify-between gap-2 rounded-2xl border border-[var(--danger)]/40 bg-[var(--bg-elev)] px-3 py-2 text-[13px] text-[var(--danger)]">
+          <span>{uploadError}</span>
+          <button type="button" className="shrink-0 rounded-full p-0.5 hover:bg-[var(--bg-hover)]" onClick={() => setUploadError(null)}>
+            <X size={12} />
+          </button>
+        </div>
+      )}
+      {uploading && (
+        <p className="mb-2 px-1 text-[12px] text-[var(--text-3)]">Mengunggah {uploading}…</p>
+      )}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2 px-1">
           {attachments.map((a) => (
@@ -159,9 +204,9 @@ export function Composer({
               key={t}
               type="button"
               onClick={() => toggleTool(t)}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-chip)] px-2.5 py-1 text-[12px] capitalize text-[var(--text-2)] hover:bg-[var(--bg-hover)]"
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-chip)] px-2.5 py-1 text-[12px] text-[var(--text-2)] hover:bg-[var(--bg-hover)]"
             >
-              {t === "search" ? "Search" : t === "research" ? "Deep research" : t === "image" ? "Create image" : t}
+              {composerToolLabel(t)}
               <X size={12} />
             </button>
           ))}
@@ -198,25 +243,64 @@ export function Composer({
               <Plus size={18} />
             </button>
             {menu && (
-              <div className="absolute bottom-[44px] left-0 z-50 w-[260px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg)] py-1 shadow-[0_12px_40px_rgba(0,0,0,.28)]">
-                {MENU.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[14px] hover:bg-[var(--bg-hover)]"
-                    onClick={() => {
-                      if (item.id === "files") {
-                        fileRef.current?.click();
-                        setMenu(false);
-                      } else {
-                        toggleTool(item.id);
-                      }
-                    }}
-                  >
-                    <item.icon size={18} className="text-[var(--text-2)]" />
-                    {item.label}
-                  </button>
-                ))}
+              <div className="absolute bottom-[44px] left-0 z-50 max-h-[min(460px,70vh)] w-[min(392px,calc(100vw-24px))] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg)] py-1.5 shadow-[0_12px_40px_rgba(0,0,0,.28)] dr-scroll">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-[14px] hover:bg-[var(--bg-hover)]"
+                  onClick={() => {
+                    fileRef.current?.click();
+                    setMenu(false);
+                  }}
+                >
+                  <Paperclip size={18} className="text-[var(--text-2)]" />
+                  Add photos & files
+                </button>
+
+                <div className="px-3 pb-1 pt-2 text-[12px] text-[var(--text-3)]">Plugin</div>
+                {PLUGIN_CATALOG.map((item) => {
+                  const on = tools.includes(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`flex w-full items-center gap-3 px-3 py-2 text-left ${
+                        on ? "bg-[var(--bg-elev)]" : "hover:bg-[var(--bg-hover)]"
+                      }`}
+                      onClick={() => toggleTool(item.id)}
+                    >
+                      <PluginIcon name={item.icon} size={20} />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="font-semibold text-[14px] text-[var(--text)]">{item.title}</span>
+                        <span className="ml-1.5 text-[13px] font-normal text-[var(--text-3)]">
+                          {item.description}
+                        </span>
+                      </span>
+                      {on && <Check size={14} className="shrink-0 text-[var(--text-2)]" />}
+                    </button>
+                  );
+                })}
+
+                <div className="px-3 pb-1 pt-2 text-[12px] text-[var(--text-3)]">More</div>
+                {MORE.map((item) => {
+                  const on = tools.includes(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`flex w-full items-center gap-3 px-3 py-2 text-left text-[14px] ${
+                        on ? "bg-[var(--bg-elev)]" : "hover:bg-[var(--bg-hover)]"
+                      }`}
+                      onClick={() => toggleTool(item.id)}
+                    >
+                      <item.icon size={18} className="text-[var(--text-2)]" />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="font-semibold">{item.label}</span>
+                        <span className="ml-1.5 font-normal text-[var(--text-3)]">{item.desc}</span>
+                      </span>
+                      {on && <Check size={14} className="shrink-0 text-[var(--text-2)]" />}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

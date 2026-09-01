@@ -1,4 +1,11 @@
 import { maskError, maskProviderText } from "@/lib/brand";
+import {
+  attachmentsForChatRequest,
+  buildProviderUserText,
+  capToolArguments,
+  EMPTY_ANALYSIS_MESSAGE,
+  PROVIDER_FETCH_TIMEOUT_MS,
+} from "@/lib/attachments";
 import { getProviderConfig, resolveProviderModel } from "@/lib/provider";
 import { getConversation, upsertConversation } from "@/lib/store";
 import { buildSystemPrompt } from "@/lib/system-prompt";
@@ -10,7 +17,7 @@ import { pluginTools } from "@/lib/tools/plugins";
 import { getDb, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import type { ProviderMessage } from "@/lib/llm-types";
-import type { Attachment, ComposerTool, Conversation, Message, ModelId, Mode } from "@/lib/types";
+import type { Attachment, CanvasState, ComposerTool, Conversation, Message, ModelId, Mode } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -22,6 +29,7 @@ type Incoming = {
   model: ModelId;
   tools: ComposerTool[];
   attachments?: Attachment[];
+  canvas?: CanvasState | null;
   skillId?: string | null;
   projectId?: string | null;
   temporary?: boolean;
@@ -35,7 +43,13 @@ function sse(obj: unknown) {
 
 export async function POST(req: Request) {
   const encoder = new TextEncoder();
-  const body = (await req.json()) as Incoming;
+  let body: Incoming;
+  try {
+    body = (await req.json()) as Incoming;
+  } catch {
+    return Response.json({ error: "Permintaan terlalu besar atau tidak valid." }, { status: 400 });
+  }
+  body.attachments = attachmentsForChatRequest(body.attachments);
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -89,6 +103,7 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   conv.model = body.model;
   conv.skillId = body.skillId ?? conv.skillId;
   conv.projectId = body.projectId ?? conv.projectId;
+  if (body.canvas !== undefined) conv.canvas = body.canvas;
 
   if (body.permissionId && body.permissionApproved !== undefined) {
     const last = [...conv.messages].reverse().find((m) => m.permission?.id === body.permissionId);
@@ -108,7 +123,7 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       id: crypto.randomUUID(),
       role: "user",
       content: body.message,
-      attachments: body.attachments,
+      attachments: attachmentsForChatRequest(body.attachments),
       createdAt: Date.now(),
     };
     conv.messages.push(userMsg);
@@ -179,15 +194,12 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   for (const m of conv.messages) {
     if (m.role === "user") {
       const images = (m.attachments || []).filter((a) => a.kind === "image" && a.url.startsWith("data:"));
-      const fileNotes = (m.attachments || [])
-        .filter((a) => a.kind === "file" && a.text)
-        .map((a) => `\n\n[File: ${a.name}]\n${a.text}`)
-        .join("");
+      const text = buildProviderUserText(m.content, m.attachments);
       if (images.length) {
         messages.push({
           role: "user",
           content: [
-            { type: "text", text: `${m.content}${fileNotes}` },
+            { type: "text", text },
             ...images.map((img) => ({
               type: "image_url" as const,
               image_url: { url: img.url },
@@ -195,7 +207,7 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
           ],
         });
       } else {
-        messages.push({ role: "user", content: `${m.content}${fileNotes}` });
+        messages.push({ role: "user", content: text });
       }
     } else if (m.role === "assistant") {
       messages.push({
@@ -212,6 +224,8 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     deliverable: conv.deliverable ?? null,
     permission: null,
     images: [],
+    sources: [],
+    files: [],
   };
 
   const assistantId = crypto.randomUUID();
@@ -253,23 +267,26 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       tool_calls: result.toolCalls.map((t) => ({
         id: t.id,
         type: "function" as const,
-        function: { name: t.name, arguments: t.arguments },
+        function: { name: t.name, arguments: capToolArguments(t.name, t.arguments) },
       })),
     });
 
     for (const call of result.toolCalls) {
+      const args = capToolArguments(call.name, call.arguments);
       send({ type: "tool", id: call.id, name: displayToolName(call.name), status: "running" });
-      const executed = await executeTool(call.name, call.arguments, ctx);
+      const executed = await executeTool(call.name, args, ctx);
       ctx.canvas = executed.ctx.canvas;
       ctx.plan = executed.ctx.plan;
       ctx.deliverable = executed.ctx.deliverable;
       ctx.permission = executed.ctx.permission;
       ctx.images = executed.ctx.images;
+      ctx.sources = executed.ctx.sources;
+      ctx.files = executed.ctx.files;
       toolUIs.push({
         id: call.id,
         name: displayToolName(call.name),
         status: "done",
-        input: safeJson(call.arguments),
+        input: safeJson(args),
         output: safeJson(executed.content),
       });
       send({
@@ -282,7 +299,9 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       if (ctx.canvas) send({ type: "canvas", canvas: ctx.canvas });
       if (ctx.plan) send({ type: "plan", plan: ctx.plan });
       if (ctx.deliverable) send({ type: "deliverable", deliverable: ctx.deliverable });
+      if (ctx.sources.length) send({ type: "sources", sources: ctx.sources });
       for (const url of ctx.images) send({ type: "image", url });
+      for (const file of ctx.files) send({ type: "file", file });
       messages.push({
         role: "tool",
         tool_call_id: call.id,
@@ -299,6 +318,11 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     }
   }
 
+  if (!finalContent && !ctx.permission && !toolUIs.length) {
+    finalContent = EMPTY_ANALYSIS_MESSAGE;
+    send({ type: "content", delta: finalContent });
+  }
+
   const assistant: Message = {
     id: assistantId,
     role: "assistant",
@@ -307,6 +331,8 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     thinkingMs,
     toolCalls: toolUIs,
     images: ctx.images.length ? ctx.images : undefined,
+    sources: ctx.sources.length ? ctx.sources : undefined,
+    files: ctx.files.length ? ctx.files : undefined,
     canvas: ctx.canvas || undefined,
     plan: ctx.plan || undefined,
     permission: ctx.permission
@@ -331,6 +357,16 @@ function displayToolName(name: string) {
     open_canvas: "Canvas",
     update_canvas: "Canvas",
     generate_image: "Create image",
+    create_document: "Documents",
+    update_document: "Documents",
+    create_presentation: "Presentations",
+    update_slide: "Presentations",
+    add_slide: "Presentations",
+    create_spreadsheet: "Spreadsheets",
+    update_spreadsheet: "Spreadsheets",
+    create_pdf: "PDF",
+    read_pdf: "PDF",
+    verify_pdf: "PDF",
     create_plan: "Plan",
     update_plan: "Plan",
     request_permission: "Permission",
@@ -361,22 +397,32 @@ async function streamCompletion(opts: {
   toolCalls: { id: string; name: string; arguments: string }[];
 }> {
   const { apiKey, baseURL } = getProviderConfig();
-  const res = await fetch(`${baseURL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: opts.model,
-      messages: opts.messages,
-      stream: true,
-      thinking: { type: "enabled" },
-      reasoning_effort: "high",
-      tools: opts.tools.length ? opts.tools : undefined,
-      tool_choice: opts.tools.length ? "auto" : undefined,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${baseURL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(PROVIDER_FETCH_TIMEOUT_MS),
+      body: JSON.stringify({
+        model: opts.model,
+        messages: opts.messages,
+        stream: true,
+        thinking: { type: "enabled" },
+        reasoning_effort: "high",
+        tools: opts.tools.length ? opts.tools : undefined,
+        tool_choice: opts.tools.length ? "auto" : undefined,
+      }),
+    });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw new Error(EMPTY_ANALYSIS_MESSAGE);
+    }
+    throw error;
+  }
 
   if (!res.ok) {
     const text = await res.text();

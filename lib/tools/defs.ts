@@ -136,6 +136,188 @@ export function builtinToolDefs(opts: {
     {
       type: "function",
       function: {
+        name: "create_document",
+        description: "Create a rich document in the side canvas. Use markdown for headings, lists, and tables.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            content: { type: "string", description: "Full markdown document" },
+          },
+          required: ["title", "content"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "update_document",
+        description: "Replace the current document canvas contents.",
+        parameters: {
+          type: "object",
+          properties: {
+            content: { type: "string" },
+            title: { type: "string" },
+          },
+          required: ["content"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_presentation",
+        description: "Create a slide deck in the side canvas. Each slide has a title and bullet points.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            slides: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  bullets: { type: "array", items: { type: "string" } },
+                  notes: { type: "string" },
+                },
+                required: ["title", "bullets"],
+              },
+            },
+          },
+          required: ["title", "slides"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "update_slide",
+        description: "Update one slide in the current presentation (0-based index).",
+        parameters: {
+          type: "object",
+          properties: {
+            index: { type: "integer" },
+            title: { type: "string" },
+            bullets: { type: "array", items: { type: "string" } },
+            notes: { type: "string" },
+          },
+          required: ["index"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "add_slide",
+        description: "Append a slide to the current presentation.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            bullets: { type: "array", items: { type: "string" } },
+            notes: { type: "string" },
+          },
+          required: ["title", "bullets"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_spreadsheet",
+        description: "Create a spreadsheet in the side canvas from headers and rows.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            headers: { type: "array", items: { type: "string" } },
+            rows: { type: "array", items: { type: "array", items: { type: "string" } } },
+          },
+          required: ["title", "headers", "rows"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "update_spreadsheet",
+        description: "Update the current spreadsheet. Replace headers/rows, append rows, or patch a cell.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            headers: { type: "array", items: { type: "string" } },
+            rows: { type: "array", items: { type: "array", items: { type: "string" } } },
+            append_rows: { type: "array", items: { type: "array", items: { type: "string" } } },
+            cell: {
+              type: "object",
+              properties: {
+                row: { type: "integer", description: "0-based data row" },
+                col: { type: "integer", description: "0-based column" },
+                value: { type: "string" },
+              },
+              required: ["row", "col", "value"],
+            },
+          },
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_pdf",
+        description: "Create a downloadable PDF from a title and body, and open it in the canvas.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            content: { type: "string", description: "Plain text or markdown to put in the PDF" },
+          },
+          required: ["title", "content"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "read_pdf",
+        description:
+          "Open a short excerpt of extracted PDF text in the canvas. Do not pass the full file; attachment text is already in the user message.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            text: { type: "string", description: "Short excerpt only (not the full PDF)" },
+            filename: { type: "string" },
+          },
+          required: ["text"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "verify_pdf",
+        description:
+          "Check a short excerpt of extracted PDF text for empty pages, garbled characters, and missing structure. Do not pass the full file.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "Short excerpt only (not the full PDF)" },
+            filename: { type: "string" },
+            pages: { type: "integer" },
+          },
+          required: ["text"],
+        },
+      },
+    },
+  );
+
+  tools.push(
+    {
+      type: "function",
+      function: {
         name: "remember",
         description: "Store a durable fact about the user.",
         parameters: {

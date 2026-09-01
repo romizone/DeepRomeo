@@ -84,22 +84,26 @@ function migrate(raw: Database.Database) {
 }
 
 function seed(raw: Database.Database) {
-  const count = raw.prepare("SELECT COUNT(*) as c FROM skills").get() as { c: number };
-  if (count.c === 0) {
-    const insert = raw.prepare(
-      `INSERT INTO skills (id, slug, name, description, instructions, tools, icon, builtin)
-       VALUES (@id, @slug, @name, @description, @instructions, @tools, @icon, 1)`,
-    );
-    const tx = raw.transaction(() => {
-      for (const skill of BUILTIN_SKILLS) {
-        insert.run({
-          ...skill,
-          tools: JSON.stringify(skill.tools),
-        });
-      }
-    });
-    tx();
-  }
+  const insert = raw.prepare(
+    `INSERT INTO skills (id, slug, name, description, instructions, tools, icon, builtin)
+     VALUES (@id, @slug, @name, @description, @instructions, @tools, @icon, 1)`,
+  );
+  const update = raw.prepare(
+    `UPDATE skills SET slug = @slug, name = @name, description = @description, instructions = @instructions, tools = @tools, icon = @icon
+     WHERE id = @id AND builtin = 1`,
+  );
+  const tx = raw.transaction(() => {
+    for (const skill of BUILTIN_SKILLS) {
+      const row = {
+        ...skill,
+        tools: JSON.stringify(skill.tools),
+      };
+      const exists = raw.prepare("SELECT id FROM skills WHERE id = ?").get(skill.id);
+      if (exists) update.run(row);
+      else insert.run(row);
+    }
+  });
+  tx();
 
   const mem = raw.prepare("SELECT COUNT(*) as c FROM settings").get() as { c: number };
   if (mem.c === 0) {
