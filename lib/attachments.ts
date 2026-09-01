@@ -1,4 +1,4 @@
-import type { Attachment } from "./types";
+import type { Attachment, Conversation, Message } from "./types";
 
 /** Vercel serverless request body is ~4.5MB; leave room for multipart headers. */
 export const VERCEL_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
@@ -94,6 +94,27 @@ export function sanitizeAttachments(attachments: Attachment[] | undefined): Atta
 
 export function attachmentsForChatRequest(attachments: Attachment[] | undefined): Attachment[] {
   return sanitizeAttachments(attachments);
+}
+
+export function persistableAttachment(attachment: Attachment): Attachment {
+  const next = sanitizeAttachment(attachment);
+  if (next.url.startsWith("data:")) return { ...next, url: "" };
+  return next;
+}
+
+export function persistableMessage(message: Message): Message {
+  if (!message.attachments?.length) return message;
+  return {
+    ...message,
+    attachments: message.attachments.map(persistableAttachment),
+  };
+}
+
+export function persistableConversation(conv: Conversation): Conversation {
+  return {
+    ...conv,
+    messages: conv.messages.map(persistableMessage),
+  };
 }
 
 export function buildFileNotes(attachments: Attachment[] | undefined): string {

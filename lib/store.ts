@@ -1,4 +1,5 @@
 import { desc, eq } from "drizzle-orm";
+import { persistableConversation } from "./attachments";
 import { getDb, schema } from "./db";
 import type { Conversation, Message } from "./types";
 
@@ -63,6 +64,7 @@ export async function getConversation(id: string): Promise<Conversation | null> 
 
 export async function upsertConversation(conv: Conversation) {
   if (conv.temporary) return;
+  conv = persistableConversation(conv);
   const db = getDb();
   const existing = await db
     .select()

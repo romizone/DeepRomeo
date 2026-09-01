@@ -7,6 +7,7 @@ import {
   attachmentsForChatRequest,
   buildProviderUserText,
   capToolArguments,
+  persistableAttachment,
   sanitizeAttachments,
   tooLargeError,
   truncateExtractedText,
@@ -86,4 +87,17 @@ test("caps verify_pdf / read_pdf tool echo without touching other tools", () => 
   assert.ok(capped.length < 4000);
   assert.ok(capped.includes(TRUNCATION_MARK));
   assert.equal(capToolArguments("create_document", huge), huge);
+});
+
+test("persistable attachments drop data URLs so chat history stays small", () => {
+  const persisted = persistableAttachment({
+    id: "img-3",
+    name: "photo.jpg",
+    mime: "image/jpeg",
+    size: 80_000,
+    url: `data:image/jpeg;base64,${"A".repeat(120_000)}`,
+    kind: "image",
+  });
+  assert.equal(persisted.url, "");
+  assert.equal(persisted.name, "photo.jpg");
 });

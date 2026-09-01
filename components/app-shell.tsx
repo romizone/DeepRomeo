@@ -17,8 +17,7 @@ import {
   attachmentsForChatRequest,
   CHAT_STALL_MS,
   EMPTY_ANALYSIS_MESSAGE,
-  tooLargeError,
-  VERCEL_UPLOAD_MAX_BYTES,
+  persistableConversation,
 } from "@/lib/attachments";
 import { hydrateCanvas } from "@/lib/canvas-data";
 import { placeholderCanvasForTools } from "@/lib/plugin-catalog";
@@ -71,6 +70,34 @@ function emptyConv(partial: Partial<Conversation> = {}): Conversation {
   };
 }
 
+function cacheKey(id: string) {
+  return `dr-conv:${id}`;
+}
+
+function readCachedConv(id?: string | null): Conversation | null {
+  if (!id || typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(cacheKey(id));
+    if (!raw) return null;
+    const conv = JSON.parse(raw) as Conversation;
+    return {
+      ...conv,
+      canvas: conv.canvas ? hydrateCanvas(conv.canvas) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedConv(conv: Conversation) {
+  if (typeof window === "undefined" || !conv.id) return;
+  try {
+    sessionStorage.setItem(cacheKey(conv.id), JSON.stringify(persistableConversation(conv)));
+  } catch {
+    /* quota */
+  }
+}
+
 function applyTheme(theme: "light" | "dark") {
   document.documentElement.setAttribute("data-theme", theme);
 }
@@ -84,7 +111,9 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
   const [model, setModel] = useState<ModelId>("flash");
   const [tools, setTools] = useState<ComposerTool[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [conv, setConv] = useState<Conversation>(() => emptyConv());
+  const [conv, setConv] = useState<Conversation>(
+    () => readCachedConv(conversationId) || emptyConv(),
+  );
   const [recents, setRecents] = useState<Conversation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -98,6 +127,10 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
   const [workOpen, setWorkOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const convRef = useRef(conv);
+  const streamingRef = useRef(streaming);
+  convRef.current = conv;
+  streamingRef.current = streaming;
 
   const loadLists = useCallback(async () => {
     try {
@@ -130,26 +163,51 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
   }, [pathname]);
 
   useEffect(() => {
+    if (conv.messages.length) writeCachedConv(conv);
+  }, [conv]);
+
+  useEffect(() => {
     if (!conversationId) {
-      setConv(emptyConv({ mode, model }));
-      setCanvasOpen(false);
-      setWorkOpen(mode === "work");
+      if (!streamingRef.current && convRef.current.messages.length === 0) {
+        setConv(emptyConv({ mode, model }));
+        setCanvasOpen(false);
+        setWorkOpen(mode === "work");
+      }
       return;
     }
+    if (convRef.current.id === conversationId && (streamingRef.current || convRef.current.messages.length > 0)) {
+      return;
+    }
+    const cached = readCachedConv(conversationId);
+    if (cached?.messages.length) {
+      setConv(cached);
+      setMode(cached.mode || "chat");
+      setModel(cached.model || "flash");
+      setCanvasOpen(Boolean(cached.canvas));
+      setWorkOpen(cached.mode === "work" || Boolean(cached.plan || cached.deliverable));
+    }
+    let cancelled = false;
     void fetch(`/api/conversations/${conversationId}`)
       .then((r) => r.json())
       .then((json) => {
-        if (!json?.conversation) return;
+        if (cancelled || !json?.conversation) return;
+        if (streamingRef.current && convRef.current.id === conversationId) return;
         const c = json.conversation as Conversation;
-        setConv(c);
+        setConv({
+          ...c,
+          canvas: c.canvas ? hydrateCanvas(c.canvas) : null,
+        });
         setMode(c.mode || "chat");
         setModel(c.model || "flash");
         setCanvasOpen(Boolean(c.canvas));
         setWorkOpen(c.mode === "work" || Boolean(c.plan || c.deliverable));
       })
       .catch(() => {
-        /* stay on empty conversation rather than a blank shell */
+        /* stay on cached/empty conversation rather than a blank shell */
       });
+    return () => {
+      cancelled = true;
+    };
   }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -243,7 +301,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
         headers: { "Content-Type": "application/json" },
         signal: ac.signal,
         body: JSON.stringify({
-          conversationId: conversationId || (conv.messages.length ? conv.id : undefined),
+          conversationId: conversationId || conv.id,
           message: content,
           mode,
           model,
@@ -258,7 +316,10 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
         }),
       });
       if (!res.ok) {
-        let msg = res.status === 413 ? tooLargeError("upload.pdf", VERCEL_UPLOAD_MAX_BYTES) : "Something went wrong. Please try again.";
+        let msg =
+          res.status === 413
+            ? "File atau percakapan terlalu besar untuk dikirim. Coba satu file yang lebih kecil."
+            : "Something went wrong. Please try again.";
         try {
           const errJson = (await res.json()) as { error?: string; message?: string };
           msg = errJson.error || errJson.message || msg;
@@ -294,7 +355,6 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           if (type === "conversation") {
             localId = String(ev.id);
             setConv((p) => ({ ...p, id: localId }));
-            if (!conversationId) router.replace(`/c/${localId}`);
           }
           if (type === "title") {
             setConv((p) => ({ ...p, title: String(ev.title) }));
@@ -339,7 +399,11 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           }
           if (type === "canvas") {
             setCanvasOpen(true);
-            setConv((p) => ({ ...p, canvas: hydrateCanvas(ev.canvas as CanvasState) }));
+            try {
+              setConv((p) => ({ ...p, canvas: hydrateCanvas(ev.canvas as CanvasState) }));
+            } catch {
+              /* keep the thread even if a canvas payload is malformed */
+            }
           }
           if (type === "plan") {
             setWorkOpen(true);
@@ -405,6 +469,10 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
                 m.id === assistantId ? { ...m, content: accContent } : m,
               ),
             }));
+          }
+          if (type === "saved") {
+            writeCachedConv(convRef.current);
+            if (!conversationId && localId) router.replace(`/c/${localId}`);
           }
         }
       }

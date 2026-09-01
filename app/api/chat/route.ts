@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as Incoming;
   } catch {
-    return Response.json({ error: "Permintaan terlalu besar atau tidak valid." }, { status: 400 });
+    return Response.json({ error: "Permintaan terlalu besar atau tidak valid." }, { status: 413 });
   }
   body.attachments = attachmentsForChatRequest(body.attachments);
 
@@ -132,6 +132,11 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       createdAt: Date.now(),
     };
     conv.messages.push(userMsg);
+    try {
+      await upsertConversation(conv);
+    } catch {
+      /* keep going even if the first save fails */
+    }
   }
 
   if (conv.title === "New chat" && body.message) {
@@ -180,8 +185,8 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
 
   const hasUploads = (body.attachments || []).length > 0;
   const hasImages = (body.attachments || []).some((a) => a.kind === "image");
-  const model = resolveProviderModel(hasUploads ? "vision" : body.model, hasImages);
-  if (hasUploads && conv.model !== "vision") {
+  const model = resolveProviderModel(body.model, hasImages);
+  if (hasImages && conv.model !== "vision") {
     conv.model = "vision";
     send({ type: "model", model: "vision" });
   }
@@ -364,7 +369,14 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   conv.plan = ctx.plan;
   conv.deliverable = ctx.deliverable;
   conv.updatedAt = Date.now();
-  await upsertConversation(conv);
+  try {
+    await upsertConversation(conv);
+  } catch {
+    send({
+      type: "error",
+      message: "Jawaban sudah ada, tapi gagal disimpan. Salin teksnya jika perlu.",
+    });
+  }
   send({ type: "saved", conversation: { id: conv.id, title: conv.title } });
 }
 
