@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 import { extractFileText } from "@/lib/tools/files";
+import { uploadsDir } from "@/lib/storage-paths";
 import {
   IMAGE_DATA_URL_MAX_CHARS,
   serverUploadMaxBytes,
@@ -55,9 +56,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const buf = Buffer.from(await file.arrayBuffer());
-    const dir = process.env.VERCEL
-      ? path.join("/tmp", "deepromeo-uploads")
-      : path.join(process.cwd(), "uploads");
+    const dir = uploadsDir();
     fs.mkdirSync(dir, { recursive: true });
     const id = crypto.randomUUID();
     const ext = path.extname(file.name) || "";

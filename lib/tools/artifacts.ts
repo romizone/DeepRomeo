@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { uploadsDir } from "../storage-paths";
 import type { GeneratedFile } from "../types";
+
+export { uploadsDir };
 
 export {
   asRows,
@@ -15,12 +18,6 @@ export {
   slidesToHtml,
   slidesToMarkdown,
 } from "../canvas-data";
-
-export function uploadsDir() {
-  return process.env.VERCEL
-    ? path.join("/tmp", "deepromeo-uploads")
-    : path.join(process.cwd(), "uploads");
-}
 
 export function saveGeneratedFile(originalName: string, data: Buffer, mime: string): GeneratedFile {
   const dir = uploadsDir();

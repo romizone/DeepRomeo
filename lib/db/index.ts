@@ -4,11 +4,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema";
 import { BUILTIN_SKILLS } from "../skills";
-
-const dataDir = process.env.VERCEL
-  ? path.join("/tmp", "deepromeo")
-  : path.join(process.cwd(), "data");
-const dbPath = path.join(dataDir, "deepromeo.db");
+import { dataDir, storageIsEphemeral } from "../storage-paths";
 
 let sqlite: Database.Database | null = null;
 let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
@@ -122,8 +118,15 @@ function seed(raw: Database.Database) {
 
 export function getDb() {
   if (dbInstance) return dbInstance;
-  fs.mkdirSync(dataDir, { recursive: true });
-  sqlite = new Database(dbPath);
+  const dir = dataDir();
+  if (storageIsEphemeral()) {
+    console.warn(
+      "[deepromeo] Storing data under /tmp. This is per-instance and is wiped between " +
+        "invocations; set DEEPROMEO_DATA_DIR to a persistent volume for durable history.",
+    );
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  sqlite = new Database(path.join(dir, "deepromeo.db"));
   sqlite.pragma("journal_mode = WAL");
   migrate(sqlite);
   seed(sqlite);

@@ -3,6 +3,7 @@ import fsPromises from "node:fs/promises";
 import path from "node:path";
 import mammoth from "mammoth";
 import { truncateExtractedText } from "@/lib/attachments";
+import { uploadCandidates } from "@/lib/storage-paths";
 import type { Attachment } from "@/lib/types";
 
 export async function extractFileText(filePath: string, mime: string, originalName: string) {
@@ -49,11 +50,7 @@ export function imageDataUrlFromAttachment(attachment: Attachment): string | nul
   if (url.startsWith("data:")) return url;
   const fileName = url.startsWith("/api/files/") ? path.basename(url.split("?")[0]) : "";
   if (!fileName) return null;
-  const candidates = [
-    path.join("/tmp", "deepromeo-uploads", fileName),
-    path.join(process.cwd(), "uploads", fileName),
-  ];
-  const file = candidates.find((p) => fs.existsSync(p));
+  const file = uploadCandidates(fileName).find((p) => fs.existsSync(p));
   if (!file) return null;
   try {
     const buf = fs.readFileSync(file);

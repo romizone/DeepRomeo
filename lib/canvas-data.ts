@@ -101,7 +101,8 @@ export function normalizeSlides(value: unknown, opts?: { emptyOk?: boolean }): S
 export function normalizeSheet(headers: unknown, rows: unknown): SpreadsheetData {
   const cols = asStringList(headers);
   const data = asRows(rows);
-  const width = Math.max(cols.length, ...data.map((row) => row.length), 1);
+  // Spreading a large array into Math.max overflows the call stack.
+  const width = data.reduce((w, row) => Math.max(w, row.length), Math.max(cols.length, 1));
   const nextHeaders = Array.from({ length: width }, (_, i) => cols[i] || `Column ${i + 1}`);
   const nextRows =
     data.length > 0

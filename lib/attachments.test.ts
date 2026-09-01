@@ -8,6 +8,7 @@ import {
   buildProviderUserText,
   capToolArguments,
   persistableAttachment,
+  persistableMessage,
   sanitizeAttachments,
   tooLargeError,
   truncateExtractedText,
@@ -100,4 +101,51 @@ test("persistable attachments drop data URLs so chat history stays small", () =>
   });
   assert.equal(persisted.url, "");
   assert.equal(persisted.name, "photo.jpg");
+});
+
+test("generated media is never persisted as an inlined blob", () => {
+  const bigImage = `data:image/png;base64,${"A".repeat(900_000)}`;
+  const message = persistableMessage({
+    id: "a1",
+    role: "assistant",
+    content: "here you go",
+    images: [bigImage, "/api/files/kept.png"],
+    files: [
+      { name: "big.pdf", url: `data:application/pdf;base64,${"B".repeat(900_000)}`, mime: "application/pdf" },
+      { name: "ok.pdf", url: "/api/files/ok.pdf", mime: "application/pdf" },
+    ],
+    canvas: {
+      id: "c1",
+      title: "Doc",
+      language: "pdf",
+      kind: "pdf",
+      content: "body",
+      fileUrl: `data:application/pdf;base64,${"C".repeat(900_000)}`,
+    },
+    createdAt: 1,
+  });
+
+  assert.deepEqual(message.images, ["/api/files/kept.png"]);
+  assert.deepEqual(
+    message.files?.map((f) => f.url),
+    ["/api/files/ok.pdf"],
+  );
+  assert.equal(message.canvas?.fileUrl, undefined);
+
+  // Whatever survives has to fit alongside a chat thread in localStorage.
+  assert.ok(JSON.stringify(message).length < 4_000, "persisted message stays small");
+});
+
+test("short data URLs and plain URLs pass through untouched", () => {
+  const tiny = "data:image/png;base64,AAAA";
+  const message = persistableMessage({
+    id: "a2",
+    role: "assistant",
+    content: "",
+    images: [tiny],
+    files: [{ name: "n.csv", url: "/api/files/n.csv", mime: "text/csv" }],
+    createdAt: 1,
+  });
+  assert.deepEqual(message.images, [tiny]);
+  assert.equal(message.files?.[0].url, "/api/files/n.csv");
 });

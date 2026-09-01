@@ -102,17 +102,47 @@ export function persistableAttachment(attachment: Attachment): Attachment {
   return next;
 }
 
+/** A stored URL longer than this is an inlined blob, not a reference. */
+export const MAX_PERSISTED_URL_CHARS = 4_000;
+
+function persistableUrl(url: string | undefined): string {
+  if (!url) return "";
+  return url.startsWith("data:") && url.length > MAX_PERSISTED_URL_CHARS ? "" : url;
+}
+
+function persistableCanvas(canvas: Message["canvas"]): Message["canvas"] {
+  if (!canvas?.fileUrl) return canvas;
+  const fileUrl = persistableUrl(canvas.fileUrl);
+  return { ...canvas, fileUrl: fileUrl || undefined };
+}
+
+/**
+ * Generated images and files are referenced by URL, but a fallback can still
+ * inline one as base64. Left in place they blow the localStorage quota, and
+ * persistClientConversation swallows that failure, so history stops saving
+ * with no visible error.
+ */
 export function persistableMessage(message: Message): Message {
-  if (!message.attachments?.length) return message;
-  return {
-    ...message,
-    attachments: message.attachments.map(persistableAttachment),
-  };
+  const next: Message = { ...message };
+  if (message.attachments?.length) {
+    next.attachments = message.attachments.map(persistableAttachment);
+  }
+  if (message.images?.length) {
+    next.images = message.images.map(persistableUrl).filter(Boolean);
+  }
+  if (message.files?.length) {
+    next.files = message.files
+      .map((file) => ({ ...file, url: persistableUrl(file.url) }))
+      .filter((file) => file.url);
+  }
+  if (message.canvas) next.canvas = persistableCanvas(message.canvas);
+  return next;
 }
 
 export function persistableConversation(conv: Conversation): Conversation {
   return {
     ...conv,
+    canvas: conv.canvas ? persistableCanvas(conv.canvas) ?? null : conv.canvas,
     messages: conv.messages.map(persistableMessage),
   };
 }

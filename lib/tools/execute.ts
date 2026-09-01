@@ -30,6 +30,36 @@ export interface ToolContext {
   files: GeneratedFile[];
 }
 
+// [\s\S] rather than the dotAll flag, which needs an ES2018 target.
+const DATA_URL_RE = /^data:([^;,]+);base64,([\s\S]*)$/;
+
+const DATA_URL_EXT: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "application/pdf": ".pdf",
+};
+
+/**
+ * Generated media used to travel and persist as base64 data URLs. A single
+ * image pushed the message payload past the ~5MB localStorage quota, and
+ * persistClientConversation swallows that error, so client-side history
+ * silently stopped saving. Store the bytes and hand back a short URL.
+ */
+function persistDataUrl(dataUrl: string, baseName: string): string {
+  const match = DATA_URL_RE.exec(dataUrl);
+  if (!match) return dataUrl;
+  try {
+    const mime = match[1];
+    const buf = Buffer.from(match[2], "base64");
+    return saveGeneratedFile(`${baseName}${DATA_URL_EXT[mime] || ".bin"}`, buf, mime).url;
+  } catch {
+    // No writable disk: inline is worse, but better than losing the result.
+    return dataUrl;
+  }
+}
+
 export async function executeTool(
   name: string,
   rawArgs: string,
@@ -87,7 +117,8 @@ async function runTool(
   if (name === "generate_image") {
     const img = await generateImage(String(args.prompt || ""), String(args.aspect_ratio || "1:1"));
     if ("url" in img && img.url) {
-      ctx.images = [...ctx.images, img.url];
+      const url = img.url.startsWith("data:") ? persistDataUrl(img.url, "image") : img.url;
+      ctx.images = [...ctx.images, url];
       return { content: JSON.stringify({ ok: true, saved: true }), ctx };
     }
     return { content: JSON.stringify(img), ctx };
@@ -281,9 +312,9 @@ async function runTool(
     const filename = `${title.replace(/[^a-zA-Z0-9._-]+/g, "-") || "document"}.pdf`;
     let file: GeneratedFile = { name: filename, url: dataUrl, mime: "application/pdf" };
     try {
-      file = { ...saveGeneratedFile(filename, buf, "application/pdf"), url: dataUrl };
+      file = saveGeneratedFile(filename, buf, "application/pdf");
     } catch {
-      /* data URL still previews on ephemeral serverless disks */
+      /* no writable disk: fall back to the inline data URL */
     }
     ctx.files = [...ctx.files, file];
     ctx.canvas = newCanvas({
@@ -291,7 +322,7 @@ async function runTool(
       content,
       kind: "pdf",
       language: "pdf",
-      fileUrl: dataUrl,
+      fileUrl: file.url,
       fileName: file.name,
     });
     const report = verifyPdfText(content, { filename: file.name });

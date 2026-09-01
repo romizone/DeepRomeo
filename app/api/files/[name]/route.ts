@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { uploadCandidates } from "@/lib/storage-paths";
 
 export const runtime = "nodejs";
 
@@ -22,11 +23,7 @@ export async function GET(
 ) {
   const { name } = await ctx.params;
   const safe = path.basename(name);
-  const candidates = [
-    path.join("/tmp", "deepromeo-uploads", safe),
-    path.join(process.cwd(), "uploads", safe),
-  ];
-  const file = candidates.find((p) => fs.existsSync(p));
+  const file = uploadCandidates(safe).find((p) => fs.existsSync(p));
   if (!file) return new Response("Not found", { status: 404 });
   const buf = fs.readFileSync(file);
   return new Response(buf, {

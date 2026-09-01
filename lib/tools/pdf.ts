@@ -92,8 +92,14 @@ export function createPdfBuffer(title: string, body: string): Buffer {
     return objects.length;
   };
 
-  const fontRegular = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  const fontBold = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+  // Without an explicit encoding the viewer uses StandardEncoding, where the
+  // upper half of the byte range does not match the Latin-1 text written below.
+  const fontRegular = add(
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+  );
+  const fontBold = add(
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+  );
   const pageIds: number[] = [];
 
   for (let i = 0; i < pages.length; i++) {
