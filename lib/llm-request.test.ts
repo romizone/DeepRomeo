@@ -5,6 +5,7 @@ import {
   capHistory,
   forcesToolCall,
   isContextOverflow,
+  isToolChoiceRejected,
   providerErrorMessage,
 } from "./llm-request.ts";
 import { toolChoiceFor } from "./canvas-data.ts";
@@ -154,4 +155,17 @@ test("history under budget is left alone", () => {
   const before = JSON.stringify(messages);
   capHistory(messages, 100_000);
   assert.equal(JSON.stringify(messages), before);
+});
+
+test("the tool_choice rejection is recognised, other errors are not", () => {
+  assert.equal(isToolChoiceRejected("Thinking mode does not support this tool_choice"), true);
+  assert.equal(isToolChoiceRejected("tool_choice is not supported for this model"), true);
+  for (const other of [
+    "This model's maximum context length is 65536 tokens",
+    "Invalid API key",
+    "Rate limit exceeded",
+    "terminated",
+  ]) {
+    assert.equal(isToolChoiceRejected(other), false, `wrongly matched: ${other}`);
+  }
 });

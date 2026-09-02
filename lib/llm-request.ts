@@ -120,3 +120,15 @@ export function capHistory(messages: ProviderMessage[], budget: number): void {
     live.content = live.content.slice(0, keep) + TRUNCATION_NOTE;
   }
 }
+
+/**
+ * "Thinking mode does not support this tool_choice". Omitting the `thinking`
+ * parameter is enough for models where reasoning is opt-in, but a
+ * reasoning-only model thinks regardless and rejects a pinned tool_choice no
+ * matter what was sent. The turn has to fall back to "auto".
+ */
+const TOOL_CHOICE_REJECTED_RE = /does not support (?:this |the )?tool_choice|tool_choice.{0,40}not supported/i;
+
+export function isToolChoiceRejected(message: string): boolean {
+  return TOOL_CHOICE_REJECTED_RE.test(message);
+}

@@ -22,7 +22,9 @@ import { eq } from "drizzle-orm";
 import {
   buildCompletionBody,
   capHistory,
+  forcesToolCall,
   isContextOverflow,
+  isToolChoiceRejected,
   providerErrorMessage,
   type ToolChoice,
 } from "@/lib/llm-request";
@@ -279,12 +281,13 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
 
   try {
   for (let turn = 0; turn < 12; turn++) {
+    let turnChoice: ToolChoice = turn === 0 ? initialToolChoice : "auto";
     const runTurn = () =>
       streamCompletion({
         model,
         messages,
         tools,
-        toolChoice: turn === 0 ? initialToolChoice : "auto",
+        toolChoice: turnChoice,
         onThinking: (d) => {
           finalThinking += d;
           thinkingMasker.push(d);
@@ -301,17 +304,24 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       result = await runTurn();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // A rejected request fails before anything streams, so retrying emits no
-      // duplicate text. Halving the history beats failing the whole turn when
-      // the attachment budget overshoots the model's context window.
-      const canRetry =
-        !alreadyShrunk &&
-        isContextOverflow(message) &&
-        finalContent.length + finalThinking.length === emittedBefore;
-      if (!canRetry) throw error;
-      alreadyShrunk = true;
-      capHistory(messages, Math.floor(HISTORY_CHAR_BUDGET / 2));
-      result = await runTurn();
+      // A rejected request fails before anything streams, so a retry emits no
+      // duplicate text. Both recoveries below depend on that.
+      const untouched = finalContent.length + finalThinking.length === emittedBefore;
+      if (untouched && forcesToolCall(turnChoice) && isToolChoiceRejected(message)) {
+        // Dropping `thinking` from a pinned call is enough for models where
+        // reasoning is opt-in, but a reasoning-only model rejects the pin
+        // regardless. Let it choose; the system prompt already names the tool.
+        turnChoice = "auto";
+        result = await runTurn();
+      } else if (untouched && !alreadyShrunk && isContextOverflow(message)) {
+        // Halving the history beats failing the whole turn when the attachment
+        // budget overshoots the model's context window.
+        alreadyShrunk = true;
+        capHistory(messages, Math.floor(HISTORY_CHAR_BUDGET / 2));
+        result = await runTurn();
+      } else {
+        throw error;
+      }
     }
 
     thinkingMs = Date.now() - thinkStart;
