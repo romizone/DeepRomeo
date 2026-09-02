@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Play, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Play, Plus, Trash2, X } from "lucide-react";
 import { canvasShape, slidesToHtml } from "@/lib/canvas-data";
 import type { CanvasState, Slide, SpreadsheetData } from "@/lib/types";
 import { Markdown } from "./markdown";
@@ -42,7 +42,32 @@ export function CanvasPanel({
     }
   };
 
-  const download = () => {
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!exportRef.current?.contains(e.target as Node)) setExportOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [exportOpen]);
+
+  const saveBlob = (blob: Blob, filename: string) => {
+    const a = document.createElement("a");
+    const href = URL.createObjectURL(blob);
+    a.href = href;
+    a.download = filename;
+    a.click();
+    // Without this the blob is pinned for the lifetime of the document.
+    setTimeout(() => URL.revokeObjectURL(href), 0);
+  };
+
+  /** The plain-text form of the canvas: .md / .csv / .html / source file. */
+  const downloadText = () => {
     if (canvas.kind === "pdf" && canvas.fileUrl) {
       const a = document.createElement("a");
       a.href = canvas.fileUrl;
@@ -58,7 +83,6 @@ export function CanvasPanel({
     } else if (canvas.kind === "spreadsheet") {
       filename = `${canvas.title}.csv`;
       type = "text/csv";
-      body = canvas.content;
     } else if (canvas.kind === "presentation") {
       filename = `${canvas.title}.html`;
       type = "text/html";
@@ -67,15 +91,60 @@ export function CanvasPanel({
       const ext = (canvas.language || "txt").replace(/[^a-z0-9]/gi, "") || "txt";
       filename = `${canvas.title}.${ext}`;
     }
-    const blob = new Blob([body], { type });
-    const a = document.createElement("a");
-    const href = URL.createObjectURL(blob);
-    a.href = href;
-    a.download = filename;
-    a.click();
-    // Without this the blob is pinned for the lifetime of the document.
-    setTimeout(() => URL.revokeObjectURL(href), 0);
+    saveBlob(new Blob([body], { type }), filename);
   };
+
+  /**
+   * Native Office file, built server-side from what is in the panel right
+   * now — including edits made here, not just what the model first produced.
+   */
+  const downloadNative = async () => {
+    setExportBusy(true);
+    setExportError(null);
+    try {
+      const payload =
+        canvas.kind === "document"
+          ? { kind: "document", title: canvas.title, content: canvas.content }
+          : canvas.kind === "spreadsheet"
+            ? { kind: "spreadsheet", title: canvas.title, sheet: canvas.sheet ?? { headers: ["Column 1"], rows: [[""]] } }
+            : { kind: "presentation", title: canvas.title, slides: canvas.slides ?? [] };
+      const res = await fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error || `Ekspor gagal (${res.status}).`);
+      }
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const starred = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+      const plain = /filename="([^"]+)"/i.exec(disposition);
+      const filename = starred ? decodeURIComponent(starred[1]) : plain ? plain[1] : `${canvas.title}.${nativeExt}`;
+      saveBlob(await res.blob(), filename);
+      setExportOpen(false);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Ekspor gagal.");
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const nativeExt =
+    canvas.kind === "document" ? "docx" : canvas.kind === "spreadsheet" ? "xlsx" : "pptx";
+  const nativeLabel =
+    canvas.kind === "document" ? "Word (.docx)" : canvas.kind === "spreadsheet" ? "Excel (.xlsx)" : "PowerPoint (.pptx)";
+  const textLabel =
+    canvas.kind === "document"
+      ? "Markdown (.md)"
+      : canvas.kind === "spreadsheet"
+        ? "CSV (.csv)"
+        : canvas.kind === "presentation"
+          ? "HTML (.html)"
+          : canvas.kind === "pdf"
+            ? "PDF (.pdf)"
+            : "Source file";
+  const hasNative = canvas.kind === "document" || canvas.kind === "spreadsheet" || canvas.kind === "presentation";
 
   return (
     <section className="flex h-full min-w-[360px] max-w-[52%] flex-1 flex-col border-l border-[var(--border)] bg-[var(--bg)]">
@@ -114,9 +183,44 @@ export function CanvasPanel({
               {running ? "Running" : "Execute"}
             </button>
           )}
-          <button type="button" onClick={download} className="rounded-lg p-1.5 hover:bg-[var(--bg-hover)]">
-            <Download size={16} />
-          </button>
+          <div ref={exportRef} className="relative">
+            <button
+              type="button"
+              onClick={() => (hasNative ? setExportOpen((v) => !v) : downloadText())}
+              className="inline-flex items-center gap-0.5 rounded-lg p-1.5 hover:bg-[var(--bg-hover)]"
+              aria-label="Download"
+              aria-expanded={exportOpen}
+              title="Download"
+            >
+              <Download size={16} />
+              {hasNative && <ChevronDown size={12} />}
+            </button>
+            {exportOpen && hasNative && (
+              <div className="absolute right-0 top-9 z-40 w-56 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] py-1 shadow-xl">
+                <button
+                  type="button"
+                  disabled={exportBusy}
+                  onClick={() => void downloadNative()}
+                  className="block w-full px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                >
+                  {exportBusy ? "Menyiapkan…" : nativeLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadText();
+                    setExportOpen(false);
+                  }}
+                  className="block w-full px-3 py-2 text-left text-[13px] text-[var(--text-2)] hover:bg-[var(--bg-hover)]"
+                >
+                  {textLabel}
+                </button>
+                {exportError && (
+                  <div className="px-3 py-2 text-[12px] text-[var(--danger)]">{exportError}</div>
+                )}
+              </div>
+            )}
+          </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-[var(--bg-hover)]">
             <X size={16} />
           </button>

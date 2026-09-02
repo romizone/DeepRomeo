@@ -36,6 +36,7 @@
     "lib/canvas-data.test.ts",
     "lib/llm-request.test.ts",
     "lib/mask-stream.test.ts",
+    "lib/office.test.ts",
     "lib/pdf-text.test.ts",
     "scripts"
   ]

@@ -12,16 +12,20 @@
     "lint": "eslint",
     "test:attachments": "node --experimental-strip-types --test lib/attachments.test.ts lib/pdf-text.test.ts",
     "test:plugins": "node --experimental-strip-types --test lib/canvas-data.test.ts",
-    "test": "node --experimental-strip-types --test lib/attachments.test.ts lib/canvas-data.test.ts lib/llm-request.test.ts lib/mask-stream.test.ts lib/pdf-text.test.ts",
-    "test:mask": "node --experimental-strip-types --test lib/mask-stream.test.ts"
+    "test": "node --experimental-strip-types --test lib/attachments.test.ts lib/canvas-data.test.ts lib/llm-request.test.ts lib/mask-stream.test.ts lib/office.test.ts lib/pdf-text.test.ts",
+    "test:mask": "node --experimental-strip-types --test lib/mask-stream.test.ts",
+    "test:office": "node --experimental-strip-types --test lib/office.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
+    "docx": "^9.7.1",
     "drizzle-orm": "^0.45.2",
+    "exceljs": "^4.4.0",
     "katex": "^0.18.5",
     "lucide-react": "^1.38.0",
     "mammoth": "^1.12.2",
     "next": "16.3.4",
+    "pptxgenjs": "^4.0.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "^10.1.0",
@@ -41,5 +45,10 @@
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

@@ -21,13 +21,13 @@ export const PLUGIN_CATALOG: PluginItem[] = [
   {
     id: "documents",
     title: "Documents",
-    description: "Create and edit documents",
+    description: "Create and edit documents, export to Word",
     icon: "documents",
   },
   {
     id: "presentations",
     title: "Presentations",
-    description: "Create and edit presentations",
+    description: "Create and edit presentations, export to PowerPoint",
     icon: "presentations",
   },
   {
@@ -39,7 +39,7 @@ export const PLUGIN_CATALOG: PluginItem[] = [
   {
     id: "spreadsheets",
     title: "Spreadsheets",
-    description: "Create and edit spreadsheets",
+    description: "Create and edit spreadsheets, export to Excel",
     icon: "spreadsheets",
   },
   {
