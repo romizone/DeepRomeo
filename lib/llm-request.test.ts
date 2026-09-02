@@ -182,3 +182,16 @@ test("a model that rejected a pin is not pinned again", () => {
   assert.equal(pinAllowedFor("deepseek-v4-flash"), true, "other models are unaffected");
   forgetPinRejections();
 });
+
+test("an explicit thinking flag overrides the pin default", () => {
+  const pinned = { type: "function" as const, function: { name: "create_presentation" } };
+  // A round that had to fall back to "auto" keeps thinking on.
+  const on = buildCompletionBody({ ...base, tools: TOOLS, toolChoice: "auto", thinking: true });
+  assert.deepEqual(on.thinking, { type: "enabled" });
+  // A round that opened with an accepted pin stays off for its later turns too.
+  const off = buildCompletionBody({ ...base, tools: TOOLS, toolChoice: "auto", thinking: false });
+  assert.deepEqual(off.thinking, { type: "disabled" });
+  assert.equal(off.reasoning_effort, undefined);
+  // Without the flag the pin still decides.
+  assert.deepEqual(buildCompletionBody({ ...base, tools: TOOLS, toolChoice: pinned }).thinking, { type: "disabled" });
+});

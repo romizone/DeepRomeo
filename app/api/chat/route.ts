@@ -284,14 +284,22 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   let streamFailure: string | null = null;
 
   try {
+  // DeepSeek validates thinking mode per round: a tool call made while
+  // thinking must have its reasoning_content passed back on the next request,
+  // and mixing modes inside one round trips that check. So the first turn that
+  // succeeds fixes the mode for the rest of this response.
+  let roundThinking: boolean | null = null;
+
   for (let turn = 0; turn < 12; turn++) {
     let turnChoice: ToolChoice = turn === 0 ? initialToolChoice : "auto";
+    let turnThinking: boolean = roundThinking ?? !forcesToolCall(turnChoice);
     const runTurn = () =>
       streamCompletion({
         model,
         messages,
         tools,
         toolChoice: turnChoice,
+        thinking: turnThinking,
         onThinking: (d) => {
           finalThinking += d;
           thinkingMasker.push(d);
@@ -317,6 +325,7 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
         // remember, so the next request for this model skips the failed call.
         rememberPinRejected(model);
         turnChoice = "auto";
+        turnThinking = true;
         result = await runTurn();
       } else if (untouched && !alreadyShrunk && isContextOverflow(message)) {
         // Halving the history beats failing the whole turn when the attachment
@@ -330,6 +339,7 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     }
 
     thinkingMs = Date.now() - thinkStart;
+    if (roundThinking === null) roundThinking = turnThinking;
     // A pattern cannot span two separate completions, so it is safe to release
     // whatever the maskers are still holding once a turn ends.
     contentMasker.flush();
@@ -343,6 +353,12 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
     messages.push({
       role: "assistant",
       content: result.content || null,
+      // "The reasoning_content in the thinking mode must be passed back to the
+      // API": the reasoning behind a tool call travels with it on the next
+      // request of the same round. Raw, not masked — this goes to the
+      // provider, never to the user. Outside thinking mode the field must not
+      // appear at all.
+      ...(turnThinking ? { reasoning_content: result.thinking || "" } : {}),
       tool_calls: result.toolCalls.map((t) => ({
         id: t.id,
         type: "function" as const,
@@ -509,6 +525,7 @@ async function streamCompletion(opts: {
   messages: ProviderMessage[];
   tools: unknown[];
   toolChoice?: ToolChoice;
+  thinking: boolean;
   onThinking: (d: string) => void;
   onContent: (d: string) => void;
 }): Promise<{
@@ -532,6 +549,7 @@ async function streamCompletion(opts: {
           messages: opts.messages,
           tools: opts.tools,
           toolChoice: opts.toolChoice,
+          thinking: opts.thinking,
         }),
       ),
     });

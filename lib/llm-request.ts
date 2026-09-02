@@ -10,6 +10,8 @@ export interface CompletionRequest {
   messages: ProviderMessage[];
   tools: unknown[];
   toolChoice?: ToolChoice;
+  /** Explicit thinking mode; defaults to "off while a tool is pinned". */
+  thinking?: boolean;
 }
 
 /** Anything but "auto" pins which tool the model has to call next. */
@@ -31,9 +33,10 @@ export function buildCompletionBody(req: CompletionRequest): Record<string, unkn
   // DeepSeek's `thinking` parameter is {type:"enabled"} or {type:"disabled"}.
   // Saying "disabled" outright beats omitting the field, whose default is
   // whatever the model prefers — and a reasoning model prefers "on".
-  const reasoning = forcesToolCall(toolChoice)
-    ? { thinking: { type: "disabled" } }
-    : { thinking: { type: "enabled" }, reasoning_effort: "high" };
+  const think = req.thinking ?? !forcesToolCall(toolChoice);
+  const reasoning = think
+    ? { thinking: { type: "enabled" }, reasoning_effort: "high" }
+    : { thinking: { type: "disabled" } };
 
   return {
     model: req.model,
