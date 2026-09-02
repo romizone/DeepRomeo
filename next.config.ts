@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3", "docx", "exceljs", "pptxgenjs"],
+  serverExternalPackages: ["better-sqlite3"],
   allowedDevOrigins: [
     "deepromeo.rominur.com",
     "openromeo.rominur.com",

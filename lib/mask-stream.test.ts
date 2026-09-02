@@ -15,7 +15,7 @@ function streamThrough(deltas: string[]): string {
 test("a provider name split across deltas is still masked", () => {
   // The exact leak: neither half matches on its own.
   assert.equal(streamThrough(["I am ", "Deep", "Seek", ", hello."]), "I am DeepRomeo, hello.");
-  assert.equal(streamThrough(["model: deep", "seek-v4-pro done"]), "model: DeepRomeo Pro done");
+  assert.equal(streamThrough(["model: deep", "seek-v4-pro done"]), "model: DeepRomeo done");
 });
 
 test("streamed output matches masking the whole string at once", () => {
@@ -61,8 +61,8 @@ test("provider names are masked before any classification runs", () => {
   // maskError lives in brand.ts (server-only); this guards the shared table it
   // depends on: every pattern below must still be rewritten.
   const cases: [string, RegExp][] = [
-    ["deepseek-v4-flash-vision-exp", /^DeepRomeo Vision Flash$/],
-    ["deepseek-v4-pro", /^DeepRomeo Pro$/],
+    ["deepseek-v4-flash-vision-exp", /^DeepRomeo$/],
+    ["deepseek-v4-pro", /^DeepRomeo$/],
     ["Powered by DeepSeek", /^Powered by DeepRomeo$/],
     ["see api.deepseek.com", /^see DeepRomeo$/],
     ["google/gemini-3.1-flash-image", /^DeepRomeo Image$/],

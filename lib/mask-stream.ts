@@ -10,9 +10,6 @@
  */
 const REPLACEMENTS: [RegExp, string][] = [
   [/(?:https?:\/\/)?api\.deepseek\.com(?:\/[\w./=&?%-]*)?/gi, "DeepRomeo"],
-  [/deepseek-v4-flash-vision-exp/gi, "DeepRomeo Vision Flash"],
-  [/deepseek-v4-flash/gi, "DeepRomeo Flash"],
-  [/deepseek-v4-pro/gi, "DeepRomeo Pro"],
   [/google\/gemini-[\w.-]+/gi, "DeepRomeo Image"],
   [/(?:https?:\/\/)?openrouter\.ai(?:\/[\w./=&?%-]*)?/gi, "DeepRomeo"],
   [/OpenRouter/gi, "DeepRomeo"],

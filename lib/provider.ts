@@ -1,11 +1,12 @@
 import "server-only";
-import type { ModelId } from "./types";
 
-export const PROVIDER_MODELS: Record<ModelId, string> = {
-  flash: "deepseek-v4-flash",
-  vision: "deepseek-v4-flash-vision-exp",
-  pro: "deepseek-v4-pro",
-};
+/**
+ * One model behind everything, Chat and Work alike. The vision-capable Flash
+ * model reads images as well as text, so there is nothing left to switch on.
+ * ModelId still exists in stored conversations from before; it is carried
+ * along and ignored.
+ */
+export const PROVIDER_MODEL = "deepseek-v4-flash-vision-exp";
 
 export function getProviderConfig() {
   const apiKey = process.env.DEEPROMEO_API_KEY;
@@ -17,9 +18,4 @@ export function getProviderConfig() {
     throw new Error("DeepRomeo is not configured. Set DEEPROMEO_API_KEY in the server environment.");
   }
   return { apiKey, baseURL };
-}
-
-export function resolveProviderModel(id: ModelId, hasImages: boolean): string {
-  if (hasImages) return PROVIDER_MODELS.vision;
-  return PROVIDER_MODELS[id];
 }

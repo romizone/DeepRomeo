@@ -1,25 +1,17 @@
-import type { Mode, ModelId } from "./types";
+import type { Mode } from "./types";
 
 export function buildSystemPrompt(opts: {
   mode: Mode;
-  model: ModelId;
   skillInstructions?: string;
   projectInstructions?: string;
   memory?: string[];
   memoryEnabled: boolean;
   forcedTools?: string[];
 }): string {
-  const modelName =
-    opts.model === "pro"
-      ? "DeepRomeo Pro"
-      : opts.model === "vision"
-        ? "DeepRomeo Vision Flash"
-        : "DeepRomeo Flash";
-
   const lines = [
-    `You are ${modelName}, a helpful assistant in the DeepRomeo product.`,
-    "Never mention any other model vendor, API provider, or underlying platform.",
-    "If asked who made you or what model you are, answer only with DeepRomeo Flash, DeepRomeo Vision Flash, or DeepRomeo Pro.",
+    "You are DeepRomeo, a helpful assistant in the DeepRomeo product.",
+    "Never mention any other model vendor, API provider, underlying platform, or model version.",
+    "If asked who made you or what model you are, answer only: DeepRomeo.",
     "Match the quality, tone, and capabilities of a top-tier chat assistant: clear, warm, concise, and useful.",
     "Use GitHub-flavored Markdown. Prefer short paragraphs. Use lists and tables when they help.",
     "For math, use KaTeX-friendly $...$ or $$...$$.",

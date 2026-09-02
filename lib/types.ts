@@ -1,4 +1,5 @@
 export type Mode = "chat" | "work";
+/** Kept only because stored conversations carry it; every id resolves to the one model. */
 export type ModelId = "flash" | "vision" | "pro";
 export type Role = "user" | "assistant" | "system" | "tool";
 
@@ -200,29 +201,3 @@ export interface AppSettings {
   memoryEnabled: boolean;
   spokenLanguage: string;
 }
-
-export const MODELS: {
-  id: ModelId;
-  name: string;
-  tag: string;
-  description: string;
-}[] = [
-  {
-    id: "flash",
-    name: "DeepRomeo Flash",
-    tag: "Fast",
-    description: "Instant answers for everyday questions",
-  },
-  {
-    id: "vision",
-    name: "DeepRomeo Vision Flash",
-    tag: "Vision",
-    description: "Reads images, screenshots, PDFs, and diagrams",
-  },
-  {
-    id: "pro",
-    name: "DeepRomeo Pro",
-    tag: "Pro",
-    description: "Deep reasoning for complex work",
-  },
-];

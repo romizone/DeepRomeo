@@ -8,7 +8,6 @@ import { Composer } from "./composer";
 import { GptsView } from "./gpts-view";
 import { MessageThread } from "./message-thread";
 import { ModeSwitcher } from "./mode-switcher";
-import { ModelPicker } from "./model-picker";
 import { SearchChats } from "./search-chats";
 import { SettingsModal } from "./settings-modal";
 import { Sidebar } from "./sidebar";
@@ -65,7 +64,7 @@ function emptyConv(partial: Partial<Conversation> = {}): Conversation {
     id: crypto.randomUUID(),
     title: "New chat",
     mode: "chat",
-    model: "flash",
+    model: "vision",
     messages: [],
     canvas: null,
     plan: null,
@@ -86,7 +85,9 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [mode, setMode] = useState<Mode>("chat");
-  const [model, setModel] = useState<ModelId>("flash");
+  // One model behind everything. The id is still stored with conversations
+  // for compatibility, but nothing in the UI chooses or shows it.
+  const model: ModelId = "vision";
   const [tools, setTools] = useState<ComposerTool[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [conv, setConv] = useState<Conversation>(
@@ -176,7 +177,6 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
     if (cached?.messages.length) {
       setConv(cached);
       setMode(cached.mode || "chat");
-      setModel(cached.model || "flash");
       setCanvasOpen(Boolean(cached.canvas));
       setWorkOpen(cached.mode === "work" || Boolean(cached.plan || cached.deliverable));
     }
@@ -198,7 +198,6 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           canvas: c.canvas ? hydrateCanvas(c.canvas) : null,
         });
         setMode(c.mode || "chat");
-        setModel(c.model || "flash");
         setCanvasOpen(Boolean(c.canvas));
         setWorkOpen(c.mode === "work" || Boolean(c.plan || c.deliverable));
       })
@@ -362,7 +361,6 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
           if (type === "title") {
             setConv((p) => ({ ...p, title: String(ev.title) }));
           }
-          if (type === "model") setModel(ev.model as ModelId);
           if (type === "thinking") {
             accThink += String(ev.delta || "");
             setConv((p) => ({
@@ -583,7 +581,7 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="relative flex h-[52px] shrink-0 items-center justify-between px-2">
             <div className="flex min-w-0 items-center">
-              <ModelPicker value={model} onChange={setModel} />
+              <span className="px-2 py-1 text-[16px] font-semibold tracking-[-0.02em]">DeepRomeo</span>
             </div>
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="pointer-events-auto">
@@ -656,7 +654,6 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
                           attachments={attachments}
                           onToolsChange={setTools}
                           onAttachments={setAttachments}
-                          onVision={() => setModel("vision")}
                           onSubmit={(t) => void send(t)}
                           onStop={() => abortRef.current?.abort()}
                         />
@@ -701,7 +698,6 @@ export function AppShell({ conversationId }: { conversationId?: string }) {
                   attachments={attachments}
                   onToolsChange={setTools}
                   onAttachments={setAttachments}
-                  onVision={() => setModel("vision")}
                   onSubmit={(t) => void send(t)}
                   onStop={() => abortRef.current?.abort()}
                 />

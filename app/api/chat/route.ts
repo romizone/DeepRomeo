@@ -6,7 +6,7 @@ import {
   EMPTY_ANALYSIS_MESSAGE,
   PROVIDER_FETCH_TIMEOUT_MS,
 } from "@/lib/attachments";
-import { getProviderConfig, resolveProviderModel } from "@/lib/provider";
+import { getProviderConfig, PROVIDER_MODEL } from "@/lib/provider";
 import { hydrateCanvas } from "@/lib/canvas-data";
 import { toolChoiceFor } from "@/lib/plugin-catalog";
 import { getConversation, upsertConversation } from "@/lib/store";
@@ -47,7 +47,8 @@ type Incoming = {
   conversationId?: string;
   message: string;
   mode: Mode;
-  model: ModelId;
+  /** Older clients still send one; there is one model now, so it is ignored. */
+  model?: ModelId;
   tools: ComposerTool[];
   attachments?: Attachment[];
   canvas?: CanvasState | null;
@@ -106,7 +107,7 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       id: body.conversationId || crypto.randomUUID(),
       title: "New chat",
       mode: body.mode,
-      model: body.model,
+      model: "vision",
       skillId: body.skillId,
       projectId: body.projectId,
       temporary: Boolean(body.temporary),
@@ -121,7 +122,7 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   }
 
   conv.mode = body.mode;
-  conv.model = body.model;
+  conv.model = "vision";
   conv.skillId = body.skillId ?? conv.skillId;
   conv.projectId = body.projectId ?? conv.projectId;
   if (body.canvas !== undefined) {
@@ -202,16 +203,11 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   }
 
   const hasUploads = (body.attachments || []).length > 0;
-  const hasImages = (body.attachments || []).some((a) => a.kind === "image");
-  const model = resolveProviderModel(body.model, hasImages);
-  if (hasImages && conv.model !== "vision") {
-    conv.model = "vision";
-    send({ type: "model", model: "vision" });
-  }
+  // Single model for everything; it reads images, so uploads need no switch.
+  const model = PROVIDER_MODEL;
 
   const system = buildSystemPrompt({
     mode: conv.mode,
-    model: conv.model,
     skillInstructions,
     projectInstructions,
     memory,

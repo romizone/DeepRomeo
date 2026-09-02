@@ -37,7 +37,6 @@ export function Composer({
   attachments,
   onToolsChange,
   onAttachments,
-  onVision,
   onSubmit,
   onStop,
 }: {
@@ -48,7 +47,6 @@ export function Composer({
   attachments: Attachment[];
   onToolsChange: (tools: ComposerTool[]) => void;
   onAttachments: (files: Attachment[]) => void;
-  onVision?: () => void;
   onSubmit: (text: string) => void;
   onStop: () => void;
 }) {
@@ -159,7 +157,6 @@ export function Composer({
 
   const pickFiles = async (list: FileList | null) => {
     if (!list?.length) return;
-    onVision?.();
     const maxBytes = clientUploadMaxBytes(typeof window !== "undefined" ? window.location.hostname : "");
     const next = [...attachments];
     setUploadError(null);
