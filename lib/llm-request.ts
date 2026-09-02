@@ -28,8 +28,11 @@ export function forcesToolCall(choice: ToolChoice | undefined): boolean {
 export function buildCompletionBody(req: CompletionRequest): Record<string, unknown> {
   const hasTools = req.tools.length > 0;
   const toolChoice = hasTools ? req.toolChoice || "auto" : undefined;
+  // DeepSeek's `thinking` parameter is {type:"enabled"} or {type:"disabled"}.
+  // Saying "disabled" outright beats omitting the field, whose default is
+  // whatever the model prefers — and a reasoning model prefers "on".
   const reasoning = forcesToolCall(toolChoice)
-    ? {}
+    ? { thinking: { type: "disabled" } }
     : { thinking: { type: "enabled" }, reasoning_effort: "high" };
 
   return {
@@ -122,13 +125,36 @@ export function capHistory(messages: ProviderMessage[], budget: number): void {
 }
 
 /**
- * "Thinking mode does not support this tool_choice". Omitting the `thinking`
- * parameter is enough for models where reasoning is opt-in, but a
- * reasoning-only model thinks regardless and rejects a pinned tool_choice no
- * matter what was sent. The turn has to fall back to "auto".
+ * DeepSeek answers a pinned tool_choice in thinking mode with
+ * "Thinking mode does not support this tool_choice". A reasoning-only model
+ * cannot have thinking switched off, so for it the pin is never possible and
+ * the turn has to run on "auto" instead. Matched loosely on purpose: a model
+ * that refuses to *disable* thinking words it differently, and that refusal
+ * needs the same recovery.
  */
-const TOOL_CHOICE_REJECTED_RE = /does not support (?:this |the )?tool_choice|tool_choice.{0,40}not supported/i;
+const PIN_REJECTED_RE = /tool_choice|thinking/i;
 
-export function isToolChoiceRejected(message: string): boolean {
-  return TOOL_CHOICE_REJECTED_RE.test(message);
+export function isPinRejected(message: string): boolean {
+  return PIN_REJECTED_RE.test(message);
+}
+
+/**
+ * Models that have rejected a pinned call. Once one has, every later request
+ * for that model starts on "auto" instead of paying for a request that is
+ * known to fail first. Process-local, so a fresh instance relearns it at the
+ * cost of one rejected call.
+ */
+const pinRejectedModels = new Set<string>();
+
+export function rememberPinRejected(model: string): void {
+  pinRejectedModels.add(model);
+}
+
+export function pinAllowedFor(model: string): boolean {
+  return !pinRejectedModels.has(model);
+}
+
+/** Test hook. */
+export function forgetPinRejections(): void {
+  pinRejectedModels.clear();
 }

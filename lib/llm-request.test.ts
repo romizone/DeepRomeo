@@ -4,9 +4,12 @@ import {
   buildCompletionBody,
   capHistory,
   forcesToolCall,
+  forgetPinRejections,
   isContextOverflow,
-  isToolChoiceRejected,
+  isPinRejected,
+  pinAllowedFor,
   providerErrorMessage,
+  rememberPinRejected,
 } from "./llm-request.ts";
 import { toolChoiceFor } from "./canvas-data.ts";
 import type { ComposerTool } from "./types.ts";
@@ -14,13 +17,13 @@ import type { ComposerTool } from "./types.ts";
 const base = { model: "m", messages: [{ role: "user" as const, content: "hi" }] };
 const TOOLS = [{ type: "function", function: { name: "create_presentation" } }];
 
-test("a pinned tool call ships without reasoning", () => {
+test("a pinned tool call explicitly disables reasoning", () => {
   const body = buildCompletionBody({
     ...base,
     tools: TOOLS,
     toolChoice: { type: "function", function: { name: "create_presentation" } },
   });
-  assert.equal(body.thinking, undefined);
+  assert.deepEqual(body.thinking, { type: "disabled" });
   assert.equal(body.reasoning_effort, undefined);
   assert.deepEqual(body.tool_choice, { type: "function", function: { name: "create_presentation" } });
 });
@@ -47,7 +50,7 @@ test("no plugin can produce the rejected reasoning + pinned-tool pair", () => {
     const choice = toolChoiceFor(tools, null);
     const body = buildCompletionBody({ ...base, tools: TOOLS, toolChoice: choice });
     if (forcesToolCall(choice)) {
-      assert.equal(body.thinking, undefined, `${tools[0]} pinned a tool but still sent thinking`);
+      assert.deepEqual(body.thinking, { type: "disabled" }, `${tools[0]} pinned a tool with thinking on`);
     } else {
       assert.deepEqual(body.thinking, { type: "enabled" }, `${tools[0]} lost thinking needlessly`);
     }
@@ -157,15 +160,25 @@ test("history under budget is left alone", () => {
   assert.equal(JSON.stringify(messages), before);
 });
 
-test("the tool_choice rejection is recognised, other errors are not", () => {
-  assert.equal(isToolChoiceRejected("Thinking mode does not support this tool_choice"), true);
-  assert.equal(isToolChoiceRejected("tool_choice is not supported for this model"), true);
+test("a rejected pin is recognised, other errors are not", () => {
+  assert.equal(isPinRejected("Thinking mode does not support this tool_choice"), true);
+  assert.equal(isPinRejected("tool_choice is not supported for this model"), true);
+  assert.equal(isPinRejected("This model does not support disabling thinking"), true);
   for (const other of [
     "This model's maximum context length is 65536 tokens",
     "Invalid API key",
     "Rate limit exceeded",
     "terminated",
   ]) {
-    assert.equal(isToolChoiceRejected(other), false, `wrongly matched: ${other}`);
+    assert.equal(isPinRejected(other), false, `wrongly matched: ${other}`);
   }
+});
+
+test("a model that rejected a pin is not pinned again", () => {
+  forgetPinRejections();
+  assert.equal(pinAllowedFor("deepseek-v4-pro"), true);
+  rememberPinRejected("deepseek-v4-pro");
+  assert.equal(pinAllowedFor("deepseek-v4-pro"), false, "must remember the rejection");
+  assert.equal(pinAllowedFor("deepseek-v4-flash"), true, "other models are unaffected");
+  forgetPinRejections();
 });

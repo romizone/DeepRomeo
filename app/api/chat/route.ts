@@ -24,8 +24,10 @@ import {
   capHistory,
   forcesToolCall,
   isContextOverflow,
-  isToolChoiceRejected,
+  isPinRejected,
+  pinAllowedFor,
   providerErrorMessage,
+  rememberPinRejected,
   type ToolChoice,
 } from "@/lib/llm-request";
 import type { ProviderMessage } from "@/lib/llm-types";
@@ -265,7 +267,9 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
   const toolUIs: Message["toolCalls"] = [];
   const thinkStart = Date.now();
 
-  const initialToolChoice = toolChoiceFor(body.tools, ctx.canvas, { hasUploads });
+  // A model known to reject pinned calls goes straight to "auto".
+  const preferredChoice = toolChoiceFor(body.tools, ctx.canvas, { hasUploads });
+  const initialToolChoice: ToolChoice = pinAllowedFor(model) ? preferredChoice : "auto";
   const contentMasker = createStreamMasker((chunk) => send({ type: "content", delta: chunk }));
   const thinkingMasker = createStreamMasker((chunk) => send({ type: "thinking", delta: chunk }));
   let awaitingPermission = false;
@@ -307,10 +311,11 @@ async function runAgent(body: Incoming, send: (obj: unknown) => void) {
       // A rejected request fails before anything streams, so a retry emits no
       // duplicate text. Both recoveries below depend on that.
       const untouched = finalContent.length + finalThinking.length === emittedBefore;
-      if (untouched && forcesToolCall(turnChoice) && isToolChoiceRejected(message)) {
-        // Dropping `thinking` from a pinned call is enough for models where
-        // reasoning is opt-in, but a reasoning-only model rejects the pin
-        // regardless. Let it choose; the system prompt already names the tool.
+      if (untouched && forcesToolCall(turnChoice) && isPinRejected(message)) {
+        // A reasoning-only model rejects the pin however `thinking` is set.
+        // Let it choose — the system prompt already names the tool — and
+        // remember, so the next request for this model skips the failed call.
+        rememberPinRejected(model);
         turnChoice = "auto";
         result = await runTurn();
       } else if (untouched && !alreadyShrunk && isContextOverflow(message)) {
